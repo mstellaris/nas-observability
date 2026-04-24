@@ -239,14 +239,18 @@ Spec D1 surfaced the constraint: **snmp_exporter doesn't natively expand env var
      Then re-run this script. Full context in docs/snmp-setup.md §Step 3.
      ```
    - Curls `snmp.yml.template` from the repo's raw URL.
-   - Reads `.community`; exports `SYNOLOGY_SNMP_COMMUNITY=$(cat /volume1/docker/observability/snmp_exporter/.community)`.
-   - Runs `envsubst < snmp.yml.template > snmp.yml` to render.
+   - Reads `.community` into a local variable.
+   - Renders via `sed` (not `envsubst` — DSM's shell doesn't ship `gettext` by default; discovered during Phase 3 T039):
+     ```
+     sed 's|${SYNOLOGY_SNMP_COMMUNITY}|'"$community"'|g' snmp.yml.template > snmp.yml
+     ```
+     Sed treats `$` as literal when followed by `{`, matches the template token, and substitutes without needing a separate env-var layer. Works identically on GNU sed (DSM) and BSD sed (macOS dev shells).
    - chowns 1026:100, chmods 644.
 3. The compose service bind-mounts the rendered `snmp.yml`. The container never sees the template or the env var.
 
 **Why this mechanism vs. the alternatives:**
 
-- **Why not entrypoint override with envsubst in-container?** Would require building a custom snmp-exporter image (violates Principle I). `prom/snmp-exporter` is a distroless-ish image that doesn't include `envsubst` out of the box, so we can't cleanly wrap its entrypoint without a layer.
+- **Why not entrypoint override with envsubst in-container?** Would require building a custom snmp-exporter image (violates Principle I). `prom/snmp-exporter` is a distroless-ish image that doesn't include `envsubst` out of the box, so we can't cleanly wrap its entrypoint without a layer. (Similarly, DSM's own shell doesn't ship `envsubst` — the init script uses `sed` instead; see rendering step above.)
 - **Why not pass community via Portainer env var + container entrypoint rendering?** Same reason — no envsubst in the container.
 - **Why not commit a placeholder community string and let the operator edit `snmp.yml` in place on the NAS?** Breaks Principle II — config becomes NAS-local state rather than derivable from repo + init script.
 - **Why a file and not Portainer env vars feeding an init container?** Compose init-container patterns are flaky under DSM's Compose v2; keeping the rendering in the init script (which we already run over SSH) is simpler and one fewer moving part.

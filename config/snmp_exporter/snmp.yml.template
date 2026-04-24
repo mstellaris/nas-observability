@@ -13,9 +13,11 @@
 #
 # Community string is substituted at render time by scripts/init-nas-paths.sh,
 # which reads /volume1/docker/observability/snmp_exporter/.community (mode 600,
-# owned 1026:100) and runs envsubst against this template. The rendered file
-# lives at /volume1/docker/observability/snmp_exporter/snmp.yml on the NAS
-# and is bind-mounted read-only into the snmp-exporter container at
+# owned 1026:100) and runs `sed` against this template to replace the
+# ${SYNOLOGY_SNMP_COMMUNITY} token (sed rather than envsubst because DSM
+# doesn't ship gettext by default). The rendered file lives at
+# /volume1/docker/observability/snmp_exporter/snmp.yml on the NAS and is
+# bind-mounted read-only into the snmp-exporter container at
 # /etc/snmp_exporter/snmp.yml.
 
 auths:
