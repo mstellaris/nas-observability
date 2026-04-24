@@ -181,6 +181,8 @@ Spec D3 committed to `scrape_interval: 60s` and `scrape_timeout: 30s`. That's de
 | 10–25 seconds                | 30s still works but is close. Review `snmp.yml` for over-broad walks; prune OIDs we don't dashboard. |
 | > 25 seconds                 | Budget violation. `snmp.yml` is pulling too much. Must prune OIDs before compose commit. Do NOT push a 60s-interval job with walk approaching timeout — cascading failures ensue. |
 
+**Measured:** max 0.61s / chosen `scrape_timeout: 10s` / tier: <3s (5 samples on 2026-04-24 against this DS224+ DSM 7.3: 0.61s, 0.50s, 0.61s, 0.49s, 0.61s; walk times cluster around ~0.55s with ~16× headroom against the chosen 10s timeout).
+
 **Record in the PR description:** actual observed walk duration and the chosen `scrape_timeout`. This is a one-time measurement that doesn't need re-running unless the MIB tree changes (DSM major upgrade).
 
 **Subsystem-load check (NFR-10):** after the job is live, the Stack Health dashboard's Scrape Duration panel should show the `synology` job as a stable line, not a climbing one. A climbing line = leak (either in exporter or in NAS SNMP daemon); investigate.
