@@ -43,7 +43,12 @@ for sub in "${BIND_PATHS[@]}"; do
   mkdir -p "${path}"
   synoacltool -del "${path}" &>/dev/null || true
   chown -R "${OWNER}" "${path}"
-  echo "  ${path}  (owner ${OWNER})"
+  # DSM creates directories under /volume1/docker/ with POSIX mode 0000
+  # and an ACL, so even after chown the owner has no POSIX perms and the
+  # ACL may not grant UID 1026 access. Explicit chmod restores POSIX
+  # rwxr-xr-x, which is enough for the container to write.
+  chmod -R 0755 "${path}"
+  echo "  ${path}  (owner ${OWNER}, mode 0755)"
 done
 
 # Fetch prometheus.yml into the host path the stack bind-mounts.
