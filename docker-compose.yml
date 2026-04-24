@@ -56,7 +56,7 @@ services:
     restart: unless-stopped
     mem_limit: 90M
     command:
-      - --port=8080
+      - --port=8081
       - --storage_duration=1m
       - --housekeeping_interval=30s
       - --docker_only=true

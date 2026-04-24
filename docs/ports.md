@@ -20,7 +20,7 @@ Adding a new service picks a port from within an existing range — never invent
 | Port   | Service        | Range           |
 |--------|----------------|-----------------|
 | 3030   | Grafana        | 3000–3099       |
-| 8080   | cAdvisor       | 8080–8099       |
+| 8081   | cAdvisor       | 8080–8099       |
 | 9090   | Prometheus     | 9090–9099       |
 | 9100   | node_exporter  | 9100–9199       |
 
