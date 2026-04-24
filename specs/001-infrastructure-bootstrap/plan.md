@@ -18,7 +18,9 @@ This plan is an infrastructure-as-code feature. There is no application code —
 - `prom/prometheus:v3.1.0` — upstream, Docker Hub
 - `gcr.io/cadvisor/cadvisor:v0.49.1` — upstream, Google Container Registry
 - `prom/node-exporter:v1.8.2` — upstream, Docker Hub
-- Custom Grafana image: `ghcr.io/stellar/nas-observability/grafana:vX.Y.Z` (base `grafana/grafana:11.4.0-oss`)
+- Custom Grafana image: `ghcr.io/<github-owner>/nas-observability/grafana:vX.Y.Z` (base `grafana/grafana:11.4.0-oss`)
+
+`<github-owner>` in image references throughout this document is a placeholder for the actual GitHub username or organization under which this repo lives. The CI workflow resolves it dynamically via `${{ github.repository_owner }}`; the prose uses the placeholder to stay environment-agnostic.
 
 Image versions above are the reference choices for the first build; they are pinned in `docker-compose.yml` by exact tag per Constitution Principle I. Moving to newer upstream versions is a PR-gated decision, not automatic.
 
@@ -83,7 +85,7 @@ nas-observability/
 │
 ├── .github/
 │   ├── workflows/
-│   │   └── build-grafana-image.yml      # build + push on push-to-main and nightly
+│   │   └── build-grafana-image.yml      # build + push on push-to-main (nightly added in F003)
 │   └── pull_request_template.md         # embeds compliance checklist
 │
 └── specs/
@@ -148,7 +150,7 @@ scrape_configs:
 
 ### Grafana
 
-**Image:** `ghcr.io/stellar/nas-observability/grafana:vX.Y.Z` (custom, see §Custom Grafana Image)
+**Image:** `ghcr.io/<github-owner>/nas-observability/grafana:vX.Y.Z` (custom, see §Custom Grafana Image)
 **Host port:** 3030
 **Memory limit:** 140 MB
 **Environment:**
@@ -192,8 +194,16 @@ No provisioning volume — provisioning is baked into the image, not mounted. Th
 - `/var/lib/docker/:/var/lib/docker:ro`
 - `/dev/disk/:/dev/disk:ro`
 
-**Device:**
-- `/dev/kmsg` (required for some kernel metrics on recent cAdvisor versions)
+**Devices & capabilities (narrower than `privileged: true`):**
+```yaml
+devices:
+  - /dev/kmsg:/dev/kmsg
+cap_add:
+  - SYS_ADMIN
+```
+`/dev/kmsg` is required for some kernel metrics on recent cAdvisor versions; `SYS_ADMIN` is the minimum capability cAdvisor needs to read cgroup data across all container namespaces. This combination is strictly narrower than `privileged: true` and should be preferred.
+
+**Fallback:** If DSM 7.3 rejects this combination at deploy time (Phase 8 is the first opportunity to find out), fall back to `privileged: true` with a written justification in `docs/setup.md` naming the specific DSM-side error observed. Never silently upgrade to `privileged: true` without that justification — the narrower grant is a Constitution Principle III-adjacent discipline (smallest sufficient privilege).
 
 ### node_exporter
 
@@ -234,7 +244,7 @@ COPY scripts/inject-build-metadata.sh /tmp/inject-build-metadata.sh
 RUN /tmp/inject-build-metadata.sh "${VERSION}" "${GIT_SHA}" /var/lib/grafana/dashboards/stack-health.json \
  && rm /tmp/inject-build-metadata.sh
 
-LABEL org.opencontainers.image.source="https://github.com/stellar/nas-observability"
+LABEL org.opencontainers.image.source="https://github.com/<github-owner>/nas-observability"
 LABEL org.opencontainers.image.version="${VERSION}"
 LABEL org.opencontainers.image.revision="${GIT_SHA}"
 ```
@@ -311,12 +321,10 @@ on:
       - 'docker/grafana/**'
       - 'VERSION'
       - '.github/workflows/build-grafana-image.yml'
-  schedule:
-    - cron: '0 3 * * *'            # 03:00 UTC nightly
   workflow_dispatch:
 ```
 
-**Why a nightly schedule in F001 when we have no consumer dashboards yet:** the schedule's reason for existing is consumer-dashboard propagation (per the constitution: "Builds are triggered by both pushes to nas-observability and a nightly schedule, so consumer dashboard updates propagate without manual intervention"). F001 has nothing for it to propagate yet, but we stand it up now so that when F003+ adds the Mneme-dashboards checkout step, the schedule is already wired. Less chance of shipping the mechanism and forgetting the trigger.
+**No nightly schedule in F001.** The constitution describes a nightly build as part of the consumer-dashboard propagation mechanism, but F001 has no consumer dashboards for it to propagate. Wiring the schedule now would produce 365 identical images per year in GHCR until Feature 003 actually adds consumer dashboards to the build context. The `schedule:` trigger ships with F003, at the same time as the Mneme-dashboards checkout step it exists to serve.
 
 **Why path filters on push:** avoid rebuilding when only the README or unrelated docs change.
 
@@ -488,7 +496,7 @@ Phase 8 is the first end-to-end integration test; expect to find at least one th
 | Upstream Grafana 11.4.0-oss provisioning schema changes | Low | We pin the base image; upgrading Grafana is a deliberate PR. Provisioning schema has been stable for several major versions. |
 | Prometheus TSDB corruption from improper shutdown | Medium | `restart: unless-stopped` handles crash recovery. WAL replay on restart is upstream-standard. Bind-mounted TSDB to stable `/volume1` storage (SHR, not ephemeral). |
 | Residential upstream pull speed makes cold deploy > 5 minutes | Medium | NFR-2b allows 5 minutes. If we consistently miss, we can pre-pull images via `docker pull` over SSH before the Portainer deploy — document as an optional speedup in `docs/deploy.md` if encountered. |
-| Nightly GHA run fails silently (schedule-only builds don't notify) | Low | Enable GitHub's default workflow-failure notifications on the repo. If this becomes noisy later, add a Slack/email hook; not worth wiring for F001. |
+| DSM 7.3 rejects cAdvisor's `SYS_ADMIN` + `/dev/kmsg` device combination | Low | Fall back to `privileged: true` with written justification in `docs/setup.md`. Phase 8 is the first opportunity to surface this; all other deployment risks assume this resolves cleanly. |
 
 ---
 
