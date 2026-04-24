@@ -218,10 +218,12 @@ cap_add:
 --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
 ```
 
-**Volumes (read-only host mounts, standard upstream recipe):**
+**Volumes (read-only host mounts, adjusted from the upstream recipe):**
 - `/proc:/host/proc:ro`
 - `/sys:/host/sys:ro`
-- `/:/host/root:ro,rslave`
+- `/:/host/root:ro`
+
+The upstream recipe uses `ro,rslave` on the `/` mount to propagate post-start mount changes into the container. DSM 7.3 mounts `/` as private (the Linux default), which Docker refuses to combine with rslave propagation — the deploy fails with "path / is mounted on / but it is not a shared or slave mount". On the NAS, mount topology is stable after boot (`/volume1`, etc. are mounted during DSM init, long before Docker), so plain `ro` captures accurate filesystem metrics without the propagation flag.
 
 ---
 

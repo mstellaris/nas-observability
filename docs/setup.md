@@ -144,6 +144,17 @@ docker exec -it grafana wget -q -O- http://localhost:9090/-/healthy
 
 If this succeeds, the datasource config is wrong (check `docker/grafana/provisioning/datasources/datasources.yaml`). If it fails, Prometheus isn't running or isn't bound to `:9090` — investigate via `docker logs prometheus`.
 
+### node_exporter deploy fails with mount propagation error
+
+**Symptom:** Portainer (or `docker compose up`) fails with:
+```
+path / is mounted on / but it is not a shared or slave mount
+```
+
+**Cause:** The node_exporter service mounts `/` into the container. If that volume specifies `rslave` propagation (the upstream-recommended recipe), Docker refuses unless the host's `/` is already mounted as `shared` or `slave`. DSM 7.3 mounts `/` as `private` by default.
+
+**Recovery:** Already applied in this repo — `docker-compose.yml` uses plain `ro` for the `/:/host/root` mount (no `rslave`). Mount topology on the NAS is stable after boot, so propagation isn't needed. If you ever re-introduce `rslave` from an upstream example, this error returns.
+
 ### Grafana image pull fails as unauthenticated
 
 **Symptom:** Portainer fails to pull `ghcr.io/mstellaris/nas-observability/grafana:...` with an "unauthorized" error.
