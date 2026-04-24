@@ -1,0 +1,70 @@
+# nas-observability stack — Docker Compose v2 schema (no version: key).
+# Deployed via Portainer on Synology DS224+ (DSM 7.3).
+# Constitutional constraints:
+#   - All services run network_mode: host (DSM bridge limitations — Principle III).
+#   - Pinned image tags only; no :latest (Principle I).
+#   - Per-service mem_limit sums to 560M; 40M reserved for F002 SNMP exporter (Principle IV).
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    container_name: prometheus
+    network_mode: host
+    restart: unless-stopped
+    mem_limit: 280M
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --storage.tsdb.retention.size=5GB
+      - --web.enable-lifecycle
+      - --web.listen-address=:9090
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - /volume1/docker/observability/prometheus/data:/prometheus
+
+  grafana:
+    image: ghcr.io/mstellaris/nas-observability/grafana:v0.1.0
+    container_name: grafana
+    network_mode: host
+    restart: unless-stopped
+    mem_limit: 140M
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: cadvisor
+    network_mode: host
+    restart: unless-stopped
+    mem_limit: 90M
+    command:
+      - --port=8080
+      - --storage_duration=1m
+      - --housekeeping_interval=30s
+      - --docker_only=true
+      - --disable_metrics=percpu,sched,tcp,udp,accelerator,hugetlb,referenced_memory,cpu_topology,resctrl
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    cap_add:
+      - SYS_ADMIN
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: node-exporter
+    network_mode: host
+    restart: unless-stopped
+    mem_limit: 50M
+    command:
+      - --path.rootfs=/host/root
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro,rslave

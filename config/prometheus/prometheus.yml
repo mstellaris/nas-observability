@@ -1,0 +1,21 @@
+# Prometheus scrape configuration for nas-observability Feature 001.
+# Retention is configured on the command line in docker-compose.yml, not here.
+# All targets use localhost because of network_mode: host (Principle III).
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: node_exporter
+    static_configs:
+      - targets: ['localhost:9100']
+
+  - job_name: cadvisor
+    scrape_interval: 30s
+    static_configs:
+      - targets: ['localhost:8080']
