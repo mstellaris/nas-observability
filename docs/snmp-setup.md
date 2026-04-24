@@ -17,6 +17,8 @@ DSM-side runbook for enabling SNMP on the Synology NAS and populating the export
 5. Leave **Allowed source IP** empty for now (LAN-only), OR restrict to the NAS's own IP range for belt-and-suspenders.
 6. Click **Apply**.
 
+**DSM firewall prompt:** on Apply, DSM may open a "Firewall Notification" dialog about UDP 161 being blocked and ask whether to allow it. **Click OK** to allow. The SNMP exporter runs with `network_mode: host` and queries `localhost:161`; DSM's firewall applies to loopback too, so refusing the allow-rule would break the scrape even from inside the NAS. The LAN-only threat model (see Spec D1's SNMPv2c rationale) justifies allowing UDP 161 from LAN sources. If you want stricter scoping later, add a custom rule in **Control Panel → Security → Firewall** restricting UDP 161 to source `127.0.0.1` only — a post-feature hardening option, not required for F002.
+
 Save the community string somewhere you can paste from. You'll use it in Step 3.
 
 ## Step 2: Verify SNMP is reachable
