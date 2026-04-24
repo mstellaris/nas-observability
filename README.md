@@ -29,7 +29,7 @@ These are hard caps enforced at every PR, not aspirations. See [`.specify/memory
 
 ## Status
 
-**Feature 001 — Infrastructure Bootstrap:** deployed and running on the DS224+; 1-hour memory observation (T027) is the last outstanding step before F001 is formally closed. Retrospective with the 13 DSM-specific fixes that surfaced during first deploy: [`specs/001-infrastructure-bootstrap/retrospective.md`](specs/001-infrastructure-bootstrap/retrospective.md).
+**Feature 001 — Infrastructure Bootstrap:** complete (2026-04-24). Deployed and running on the DS224+; memory observation (T027) passed with 60% headroom across the whole stack budget. Retrospective with the 13 DSM-specific fixes that surfaced during first deploy: [`specs/001-infrastructure-bootstrap/retrospective.md`](specs/001-infrastructure-bootstrap/retrospective.md).
 
 What Feature 001 ships: compose stack with the four services above, a custom Grafana image with a baked `Stack Health` meta-dashboard, CI workflow publishing to GHCR on every push to `main`, and the authoritative port allocation table.
 
@@ -52,7 +52,7 @@ The current constitution is at version 1.0.0 (ratified 2026-04-23); see [`.speci
 
 ## Roadmap
 
-- **F001** — Infrastructure bootstrap. The baseline stack observing itself and the host. *In progress.*
+- **F001** — Infrastructure bootstrap. The baseline stack observing itself and the host. *Complete (2026-04-24).*
 - **F002** — Synology SNMP scraping, Synology MIBs, and NAS-specific dashboards (CPU, RAM, disk, temperature, volumes).
 - **F003+** — Application scraping (first consumer: Mneme), with per-app dashboards pulled into the Grafana image at build time via CI.
 - **Alerting feature** (unscheduled) — Alertmanager plus optional SMTP delivery for a narrow set of critical alerts. Lands once there are enough consumer apps to make silent-alert-only untenable.

@@ -2,16 +2,28 @@
 
 **Feature Branch:** `001-infrastructure-bootstrap`
 **Spec:** [`spec.md`](./spec.md) · **Plan:** [`plan.md`](./plan.md) · **Tasks:** [`tasks.md`](./tasks.md)
-**Status:** Deployed and running on the DS224+; T027 (memory observation) outstanding
+**Status:** **Complete (2026-04-24)** — all acceptance scenarios passed including T027; T028 conditional tuning skipped (not needed)
 **Retrospective written:** 2026-04-24
 
 ---
 
 ## Outcome
 
-The stack is live on the Synology DS224+. All four containers — Prometheus, Grafana, cAdvisor, node_exporter — are up, every health check passes, all three Prometheus scrape targets report `UP`, Grafana renders the baked `Stack Health` dashboard with correct image metadata, and total memory usage is within the constitutional 600 MB cap. CI publishes the custom Grafana image to GHCR on every push to `main`. Constitution principles I–IV are all satisfied; Principle V (alerting) is explicitly out of F001 scope.
+The stack is live on the Synology DS224+. All four containers — Prometheus, Grafana, cAdvisor, node_exporter — are up, every health check passes, all three Prometheus scrape targets report `UP`, Grafana renders the baked `Stack Health` dashboard with correct image metadata, and total memory usage is well within the constitutional 600 MB cap. CI publishes the custom Grafana image to GHCR on every push to `main`. Constitution principles I–IV are all satisfied; Principle V (alerting) is explicitly out of F001 scope.
 
-What's outstanding: **T027** — observe memory over ~1 hour of real scraping and confirm each `mem_limit` is not breached. If cAdvisor breaches 90 MB, **T028** (conditional tuning) fires. Based on the scrape-duration values seen immediately post-deploy (cAdvisor ~150–250 ms at 30s intervals, node_exporter ~50–80 ms at 15s), cAdvisor is the only realistic candidate for a squeeze, and even it is likely to land comfortably.
+**T027 memory observation — passed.** Observed values vs. budget:
+
+| Service       | Observed | `mem_limit` | % of limit |
+|---------------|----------|-------------|------------|
+| Prometheus    | 101.7 MiB | 280 MiB     | 36%        |
+| Grafana       | 84.6 MiB  | 140 MiB     | 60%        |
+| cAdvisor      | 30.2 MiB  | 90 MiB      | **34%**    |
+| node_exporter | 7.4 MiB   | 50 MiB      | 15%        |
+| **Total**     | **223.8 MiB** | **560 MiB** | **40%** |
+
+cAdvisor — the service we flagged as the most likely to approach its cap — landed at **34% of its limit**, confirming the day-one flag tuning (`--storage_duration=1m`, `--housekeeping_interval=30s`, `--docker_only=true`, `--disable_metrics=...`) was correctly sized. **T028 (conditional tuning) skipped.**
+
+Total stack memory (~224 MiB) is 60% under budget, leaving substantial headroom above the 40 MiB reserved for F002's SNMP exporter. F001 is formally complete.
 
 ---
 
@@ -118,7 +130,23 @@ These are the load-bearing learnings. F002 opens with them already in context.
 
 ---
 
-## Outstanding
+## Carry-over to Feature 002
 
-- **T027** — 1-hour memory observation. When this closes cleanly, F001 is formally done and we can open Feature 002.
-- **Follow-up items noted but not blocking:** Node.js 20 deprecation in GHA actions (ship minor bumps before 2026-09-16); multi-arch Grafana image if local dev on Apple Silicon becomes valuable; `scripts/diagnose.sh` for future features. None of these are on F001's critical path.
+Three non-blocking items surfaced during F001 that aren't F001's job to fix — explicitly pulled forward into F002's scope:
+
+1. **`scripts/diagnose.sh`** — one-command operator-side diagnostic dump covering container states, last N lines of each service's logs, `docker stats --no-stream` filtered to the stack, host ownership of bind mounts, and port-in-use checks against declared ports. Would have compressed Phase 8's many round-trips substantially, and pays compounding dividends on F002's deploy.
+2. **GHA action Node.js 20 deprecation.** `actions/checkout@v4`, `docker/setup-buildx-action@v3`, `docker/login-action@v3`, and `docker/build-push-action@v6` are flagged for Node.js 24 migration. GitHub removes Node.js 20 from runners on **2026-09-16** (~5 months from F001 close). Pin to Node.js 24-capable versions during F002, well before the deadline.
+3. **Multi-arch Grafana image** — currently publishes `linux/amd64` only. DS224+ (amd64) works natively; Apple Silicon development requires `--platform linux/amd64` over emulation. Add `platforms: linux/amd64,linux/arm64` to the `docker/build-push-action@v6` step during F002 if dev-time friction justifies the doubled build time and GHCR storage.
+
+These should be referenced when F002's `spec.md` is drafted so they become explicit F002 deliverables, not silent debt.
+
+## Feature 002 preview
+
+F002 (Synology SNMP scraping + NAS dashboards) opens with these priors from F001 memory:
+
+- **Plan on `user: "1026:100"` for the SNMP exporter from the start** — don't rediscover the DSM UID restriction.
+- **SNMP exporter config lives at an absolute host path** (`/volume1/docker/observability/snmp_exporter/snmp.yml` or similar), populated by the extended init script — not bind-mounted relative to the compose.
+- **Verify the SNMP exporter image tag exists** before pinning in plan.md (`docker manifest inspect` check at plan time).
+- **Assume the SNMP exporter binds a port inside 9100–9199** (reserved for Prometheus-ecosystem exporters per `docs/ports.md`), with `9116` already earmarked.
+- **Keep the Phase 4 → Phase 5 local-build checkpoint** when building any new custom images (unlikely for F002 — SNMP MIBs can be mounted rather than baked).
+- **SNMP exporter memory budget**: 40 MiB reserved; actual footprint of `prom/snmp-exporter` at typical single-device scrape scale is usually 20–40 MiB, so within budget. If it breaches, trim from cAdvisor's 90 MiB headroom (it's at 30 MiB in practice, so 50 MiB is up for grabs).
