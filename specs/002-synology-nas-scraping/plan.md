@@ -296,32 +296,36 @@ Specific OIDs and metric names validated in tasks.md against the walkgen output 
 
 ### D4 traceability discipline
 
-**No dashboard panel is written until its data source is confirmed.** For each panel across the three dashboards, we build a table:
+**No dashboard panel is written until its data source is confirmed.** For each panel across the three dashboards, we build a table.
 
-| Dashboard       | Panel title                  | Metric (PromQL)                                         | SNMP OID                         | Walkgen line # |
-|-----------------|------------------------------|---------------------------------------------------------|----------------------------------|----------------|
-| NAS Overview    | CPU usage (%)                | `100 - synology_cpu_idle_ratio`                         | `1.3.6.1.4.1.6574.1.1.0` (example) | TBD          |
-| NAS Overview    | RAM usage (%)                | `(1 - synology_memory_free_bytes / synology_memory_total_bytes) * 100` | `1.3.6.1.4.1.6574.1.5.x` | TBD          |
-| NAS Overview    | Disk usage (%) aggregate     | `avg(synology_volume_used_bytes / synology_volume_total_bytes)` | `1.3.6.1.4.1.6574.3.x`  | TBD          |
-| NAS Overview    | System temperature           | `synology_system_temperature_celsius`                   | `1.3.6.1.4.1.6574.1.2.0`         | TBD          |
-| NAS Overview    | CPU over time                | same as CPU usage, as time series                       | same                             | TBD          |
-| NAS Overview    | RAM over time                | same as RAM usage, as time series                       | same                             | TBD          |
-| NAS Overview    | Load average (1/5/15)        | `synology_cpu_load1 / synology_cpu_load5 / synology_cpu_load15` | `1.3.6.1.4.1.6574.1.3.x` | TBD       |
-| Storage & Vol   | Per-volume usage (gauge)     | `synology_volume_used_bytes / synology_volume_total_bytes` by volume | `1.3.6.1.4.1.6574.3.1.x` | TBD  |
-| Storage & Vol   | Per-volume free GB           | `synology_volume_free_bytes / 1024^3` by volume         | same                             | TBD            |
-| Storage & Vol   | SMART health per disk (stat) | `synology_disk_status` labeled by disk                  | `1.3.6.1.4.1.6574.2.1.x`         | TBD            |
-| Storage & Vol   | Read/write IOPS per volume   | `rate(synology_volume_reads_total[5m])` etc.            | `1.3.6.1.4.1.6574.5.x`           | TBD            |
-| Storage & Vol   | Storage pool status          | `synology_raid_status` labeled by pool                  | `1.3.6.1.4.1.6574.3.x`           | TBD            |
-| Network & Temp  | Per-interface throughput in  | `rate(ifHCInOctets[5m]) * 8` by iface                   | `1.3.6.1.2.1.31.1.1.1.6.x`       | TBD            |
-| Network & Temp  | Per-interface throughput out | `rate(ifHCOutOctets[5m]) * 8` by iface                  | `1.3.6.1.2.1.31.1.1.1.10.x`      | TBD            |
-| Network & Temp  | Per-disk temperature (stat)  | `synology_disk_temperature_celsius` by disk             | `1.3.6.1.4.1.6574.2.1.x`         | TBD            |
-| Network & Temp  | Per-disk temperature (time)  | same as above, as time series                           | same                             | TBD            |
-| Network & Temp  | System temperature (time)    | `synology_system_temperature_celsius`                   | `1.3.6.1.4.1.6574.1.2.0`         | TBD            |
-| Network & Temp  | Fan speed (if exposed)       | `synology_system_fan_rpm` — may not exist on DS224+     | model-dependent                  | TBD — drop panel if no line |
+**Traceability table — finalized against committed `snmp.yml.template` (2026-04-24).** All 18 planned panels have confirmed metric sources. One presentation adjustment: "Fan speed (RPM)" becomes "Fan status (1=normal)" because DS224+ exposes fan health indicators but not RPM values via SNMP. No panels dropped.
 
-**Walkgen line # is filled in during tasks.md work** by running the walkgen and confirming each OID is in the output. Any panel whose OID is NOT in walkgen output gets deleted (not shipped with "no data" guaranteed). This is the anti-pattern defense: dashboards that look alive but actually show nothing for three months because we copy-pasted queries against OIDs DS224+ doesn't expose.
+| Dashboard       | Panel title                     | Metric (PromQL, intent)                                                                          | SNMP OID                         | Confirmed |
+|-----------------|---------------------------------|--------------------------------------------------------------------------------------------------|----------------------------------|-----------|
+| NAS Overview    | CPU usage (%)                   | `100 - ssCpuIdle`                                                                                | 1.3.6.1.4.1.2021.11.11           | ✓         |
+| NAS Overview    | RAM usage (%)                   | `100 * (memTotalReal - memTotalFree) / memTotalReal` (values in KiB)                             | 1.3.6.1.4.1.2021.4.5 + 4.11      | ✓         |
+| NAS Overview    | Disk usage (%) aggregate        | `100 * sum(raidTotalSize - raidFreeSize) / sum(raidTotalSize)`                                   | 1.3.6.1.4.1.6574.3.1.1.4 + 3.1.1.5 | ✓       |
+| NAS Overview    | System temperature              | `temperature`                                                                                    | 1.3.6.1.4.1.6574.1.2             | ✓         |
+| NAS Overview    | CPU over time                   | same as CPU usage, time series                                                                   | same                             | ✓         |
+| NAS Overview    | RAM over time                   | same as RAM usage, time series                                                                   | same                             | ✓         |
+| NAS Overview    | Load average (1/5/15)           | `laLoadInt{laNames="Load-1"}`, `{laNames="Load-5"}`, `{laNames="Load-15"}` (lookup label)        | 1.3.6.1.4.1.2021.10.1.5          | ✓         |
+| Storage & Vol   | Per-volume usage (gauge)        | `100 * (raidTotalSize - raidFreeSize) / raidTotalSize` by `raidName`                             | 1.3.6.1.4.1.6574.3.1.1.*         | ✓         |
+| Storage & Vol   | Per-volume free GB              | `raidFreeSize / (1024^3)` by `raidName`                                                          | 1.3.6.1.4.1.6574.3.1.1.4         | ✓         |
+| Storage & Vol   | SMART health per disk           | `diskHealthStatus` by `diskName` (1=Normal, 2=Warning, 3=Critical, 4=Failing)                    | 1.3.6.1.4.1.6574.2.1.1.13        | ✓         |
+| Storage & Vol   | Volume IOPS (read/write)        | `rate(storageIOReads[5m])`, `rate(storageIOWrites[5m])` by `storageIODevice`                     | 1.3.6.1.4.1.6574.101.1.1.5 + 1.1.6 | ✓       |
+| Storage & Vol   | Storage pool status             | `raidStatus` by `raidName` (1=Normal, 2=Repairing, 3=Migrating, 4=Expanding, 5=Deleting, 11=Crashed) | 1.3.6.1.4.1.6574.3.1.1.3      | ✓         |
+| Network & Temp  | Per-interface throughput IN     | `rate(ifHCInOctets[5m]) * 8` by `ifName`                                                         | 1.3.6.1.2.1.31.1.1.1.6           | ✓         |
+| Network & Temp  | Per-interface throughput OUT    | `rate(ifHCOutOctets[5m]) * 8` by `ifName`                                                        | 1.3.6.1.2.1.31.1.1.1.10          | ✓         |
+| Network & Temp  | Per-disk temperature (stat)     | `diskTemperature` by `diskName`                                                                  | 1.3.6.1.4.1.6574.2.1.1.6         | ✓         |
+| Network & Temp  | Per-disk temperature (time)     | same as above, time series                                                                       | same                             | ✓         |
+| Network & Temp  | System temperature (time)       | `temperature`                                                                                    | 1.3.6.1.4.1.6574.1.2             | ✓         |
+| Network & Temp  | Fan status (system + CPU)       | `systemFanStatus`, `cpuFanStatus` (1=Normal, 2=Warning, 3=Critical, 4=Failing)                   | 1.3.6.1.4.1.6574.1.4.1 + 1.4.2   | ✓         |
 
-**Exact PromQL is authored during dashboard JSON creation** — the column above shows intent, not final form. Walkgen output determines the actual metric names (snmp_exporter auto-generates them from OID descriptions).
+**All 18 panels have confirmed OIDs in the committed template.** No drops; no "TBD" remains.
+
+**One template-coverage note worth remembering for F003+:** HRSTORAGE (1.3.6.1.2.1.25.2.3) is NOT walked by this template. If a future feature needs host-process or HRSWRun metrics, the walk list must be extended. For F002 this is fine — Synology's RAID MIB (`raidTotalSize`/`raidFreeSize`) gives us per-volume size data more accurately than HRSTORAGE would.
+
+**Exact PromQL is authored during dashboard JSON creation** — the column above shows intent, not final form. Metric names are as auto-generated by snmp_exporter from the MIB field names; labels like `raidName`, `diskName`, `storageIODevice`, `ifName`, `laNames` come from the template's `lookups` sections which resolve index labels to human-readable strings.
 
 ### Per-dashboard composition
 
@@ -344,7 +348,7 @@ Tags: `[synology, storage]`.
 - Row 1 (time series, h=8): Per-interface throughput in/out (stacked or dual-axis)
 - Row 2 (stat x N, h=4): Per-disk temperature (one stat per disk)
 - Row 3 (time series, h=8): Per-disk temperature over time
-- Row 4 (time series, h=5): System temperature + fan speed (if exposed)
+- Row 4 (time series + stats, h=5): System temperature (time series) + System fan status + CPU fan status (stats — DS224+ exposes fan health 1=Normal, not RPM)
 
 Tags: `[synology, network]`.
 
