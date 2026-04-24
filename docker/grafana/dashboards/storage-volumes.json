@@ -141,15 +141,15 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "rate(storageIOReads[5m])",
+          "expr": "label_replace(rate(storageIOReads[5m]), \"diskLabel\", \"Disk $1\", \"storageIODevice\", \"sata(.+)\")",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "legendFormat": "{{storageIODevice}} reads/s"
+          "legendFormat": "{{diskLabel}} reads/s"
         },
         {
           "refId": "B",
-          "expr": "rate(storageIOWrites[5m])",
+          "expr": "label_replace(rate(storageIOWrites[5m]), \"diskLabel\", \"Disk $1\", \"storageIODevice\", \"sata(.+)\")",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "legendFormat": "{{storageIODevice}} writes/s"
+          "legendFormat": "{{diskLabel}} writes/s"
         }
       ],
       "fieldConfig": {
