@@ -13,9 +13,8 @@ DSM-side runbook for enabling SNMP on the Synology NAS and populating the export
 1. **Control Panel → Terminal & SNMP → SNMP tab**.
 2. Check **Enable SNMPv2c service**. (SNMPv3 is supported but introduces complexity without security benefit on a single-tenant LAN; see Constitution v1.1 Platform Constraints and F002 spec D1 for why we chose v2c.)
 3. **Community**: pick any non-default string (avoid `public`, which every random SNMP scanner probes for). Suggestions: 16 characters of [a-zA-Z0-9], or a short memorable word + a random suffix. This lives only on your LAN; it's a namespace more than a password, but don't make it trivially guessable.
-4. **Location** / **Contact**: optional, free-text. Useful if you run multiple NASes later.
-5. Leave **Allowed source IP** empty for now (LAN-only), OR restrict to the NAS's own IP range for belt-and-suspenders.
-6. Click **Apply**.
+4. **Device Name / Location / Contact** (SNMP Device Information section): optional free-text, populates `sysDescr` / `sysLocation` / `sysContact` OIDs. Not wired into any F002 dashboard — leave blank for F002's single-NAS scope; revisit if you ever add a second NAS and want them distinguishable in SNMP output.
+5. Click **Apply**. (Source-IP restrictions in DSM 7.3 are handled entirely by the general firewall — Control Panel → Security → Firewall — not a per-service Allowed-IP field. The firewall prompt below covers this.)
 
 **DSM firewall prompt:** on Apply, DSM may open a "Firewall Notification" dialog about UDP 161 being blocked and ask whether to allow it. **Click OK** to allow. The SNMP exporter runs with `network_mode: host` and queries `localhost:161`; DSM's firewall applies to loopback too, so refusing the allow-rule would break the scrape even from inside the NAS. The LAN-only threat model (see Spec D1's SNMPv2c rationale) justifies allowing UDP 161 from LAN sources. If you want stricter scoping later, add a custom rule in **Control Panel → Security → Firewall** restricting UDP 161 to source `127.0.0.1` only — a post-feature hardening option, not required for F002.
 
