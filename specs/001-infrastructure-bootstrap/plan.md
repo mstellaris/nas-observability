@@ -192,9 +192,10 @@ No provisioning volume — provisioning is baked into the image, not mounted. Th
 - `/var/run:/var/run:ro`
 - `/sys:/sys:ro`
 - `/volume1/@docker/:/var/lib/docker:ro` — DSM-specific host path
-- `/dev/disk/:/dev/disk:ro`
 
 The upstream recipe mounts `/var/lib/docker` from the host, which is where the Docker daemon stores state on standard Linux distributions. DSM's Container Manager stores Docker state at `/volume1/@docker` instead; `/var/lib/docker` doesn't exist on the host. Verify the path on any given NAS with `docker info | grep "Docker Root Dir"`. The in-container target stays `/var/lib/docker` because that's what cAdvisor expects — only the host source changes.
+
+The upstream recipe also mounts `/dev/disk` (used to label disk I/O metrics with physical-device names), but DSM 7.3 doesn't populate `/dev/disk/`. Per-container disk I/O metrics still work without it — we just lose device-label fidelity on those metrics. Host-level disk telemetry (SMART, per-drive temperature, per-volume usage) lives under the SNMP exporter in Feature 002, not cAdvisor.
 
 **Devices & capabilities (narrower than `privileged: true`):**
 ```yaml

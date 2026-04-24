@@ -64,7 +64,10 @@ services:
       # to the conventional in-container path so cAdvisor reads Docker's
       # metadata (needed for container-name labels on metrics).
       - /volume1/@docker/:/var/lib/docker:ro
-      - /dev/disk/:/dev/disk:ro
+      # /dev/disk is not populated on DSM 7.3. Upstream cAdvisor recipes
+      # mount it to label disk I/O metrics with physical-device names;
+      # without it, per-container I/O still works, we just lose device
+      # labels. Host-level disk telemetry lives under SNMP (Feature 002).
 
   node-exporter:
     image: prom/node-exporter:v1.8.2

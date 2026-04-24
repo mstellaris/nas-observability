@@ -155,6 +155,17 @@ path / is mounted on / but it is not a shared or slave mount
 
 **Recovery:** Already applied in this repo — `docker-compose.yml` uses plain `ro` for the `/:/host/root` mount (no `rslave`). Mount topology on the NAS is stable after boot, so propagation isn't needed. If you ever re-introduce `rslave` from an upstream example, this error returns.
 
+### cAdvisor fails with "Bind mount failed: /dev/disk does not exist"
+
+**Symptom:** Deploy fails with:
+```
+Bind mount failed: '/dev/disk' does not exist
+```
+
+**Cause:** DSM 7.3 doesn't populate `/dev/disk/` by default. Upstream cAdvisor recipes mount it to label disk I/O metrics with physical-device names.
+
+**Recovery:** Already applied in this repo — the `/dev/disk` mount has been dropped from cAdvisor's volumes. Per-container I/O metrics still work; we just don't get device-label fidelity on them. Host-level disk telemetry (SMART, per-drive temperature, per-volume usage) comes from SNMP in Feature 002 instead.
+
 ### cAdvisor fails with "Bind mount failed: /var/lib/docker does not exist"
 
 **Symptom:** Deploy fails with:
