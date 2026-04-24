@@ -137,3 +137,15 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Claude Code local tooling state
+.claude/
+
+# macOS cruft
+.DS_Store
+
+# Synology DSM thumbnail directories (leak in if a repo path is mounted over SMB/NFS)
+@eaDir/
+
+# Defensive: local bind-mount targets if someone runs the stack from the repo root
+/data/
