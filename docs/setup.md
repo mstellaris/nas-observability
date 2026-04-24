@@ -8,7 +8,7 @@ On the NAS:
 
 - **DSM 7.3** (tested; older versions may work but are not supported).
 - **Container Manager** installed via Package Center. This ships with Docker Engine + Compose v2.
-- **Portainer** installed as a container, reachable via the LAN.
+- **Portainer** installed as a container, reachable via the LAN. New to Portainer on Synology? Follow Mariushosting's 30-second Portainer install using Task Scheduler and Container Manager: <https://mariushosting.com/synology-30-second-portainer-install-using-task-scheduler-docker/>. The rest of this doc assumes Portainer is up and reachable at `http://<nas-ip>:9000`.
 - **SSH enabled** (Control Panel → Terminal & SNMP → Enable SSH service) and an admin account you can `sudo` with.
 - The admin user is in the `docker` group (DSM adds this automatically once Container Manager is installed).
 
@@ -43,6 +43,8 @@ docker-compose.yml.
 
 `1026:100` is the UID:GID of this NAS's admin user (`superman:users`). If you're forking onto a different NAS, check with `id <admin-user>` and update both `scripts/init-nas-paths.sh` (the `OWNER` variable) and `docker-compose.yml` (the `user:` directives on the prometheus and grafana services) to match.
 
+DSM assigns UIDs starting at 1026 for the first admin user created after the default `admin` account, incrementing for each subsequent admin. On a fresh DS224+ with a single admin account, the admin is typically UID 1026; with multiple admins, check yours specifically: `id <admin-user>` on the NAS.
+
 The script is safe to re-run — `mkdir -p` and `chown` are idempotent, and the curl step refreshes `prometheus.yml` to the latest committed version. Re-run it any time you bump `prometheus.yml` in the repo (then `curl -X POST http://<nas-ip>:9090/-/reload` to tell Prometheus to pick up the new config without a restart).
 
 **Why `prometheus.yml` lives in a host path instead of being mounted relative from the compose:** Portainer's "Repository" deploy mode clones the repo into its own internal workspace (`/data/compose/<id>/`), which is inside Portainer's container and not visible as that path on the host filesystem. A bind mount declared as `./config/prometheus/prometheus.yml` would resolve on the host to a path that doesn't exist. Host-path mounts dodge this entirely.
@@ -72,6 +74,17 @@ Never commit the real `.env` to git. The repo's `.gitignore` already excludes it
 
 The first deploy pulls four images (~700 MB total) over your internet connection. On residential bandwidth budget ~5 minutes for a cold cache. If you need to shave time, pre-pull the images over SSH first — see `docs/deploy.md` §Speeding up cold deploys.
 
+**Shortcut:** pre-pull the images over SSH before creating the stack, so Portainer finds them cached:
+
+```bash
+sudo docker pull prom/prometheus:v3.1.0
+sudo docker pull gcr.io/cadvisor/cadvisor:v0.49.1
+sudo docker pull prom/node-exporter:v1.8.2
+sudo docker pull ghcr.io/mstellaris/nas-observability/grafana:v0.1.0
+```
+
+Reduces first-deploy time from ~5 minutes to ~30 seconds.
+
 ## Verification
 
 Once Portainer shows all four containers as "running":
@@ -82,6 +95,18 @@ Once Portainer shows all four containers as "running":
 4. The Build Metadata panel at the bottom should show the image's semver and short SHA — confirming the custom image was built and published correctly.
 
 If any of these fail, jump to **Troubleshooting** below.
+
+## What F001 does not ship
+
+This stack observes itself — it scrapes Prometheus, Grafana, cAdvisor, and node_exporter, and renders a `Stack Health` dashboard that confirms everything is running. It does NOT yet:
+
+- Scrape Synology-specific metrics via SNMP (CPU, RAM, disk health, temperature, network throughput on NAS interfaces) → Feature 002
+- Render NAS-overview dashboards (storage, volumes, network & temperature) → Feature 002
+- Scrape application metrics (Mneme, future apps) → Feature 003+
+- Send alerts for any condition → dedicated alerting feature, later
+- Expose anything externally — Grafana is reachable only on the home LAN at port 3030 → separate external-access feature
+
+If you're here expecting any of those, F001's scope is deliberately narrow. The infrastructure is now in place to add them without re-solving the DSM-specific deployment quirks each time.
 
 ## Troubleshooting
 
