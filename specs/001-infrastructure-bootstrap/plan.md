@@ -474,6 +474,24 @@ Later features will grow this: SMTP credentials (alerting feature), SNMPv3 crede
 
 ---
 
+## Implementation Deviations
+
+Documented post-hoc: the plan above describes the original design; the list below captures what actually shipped differently and why. Each deviation was discovered during Phase 8 (first NAS deploy) and fixed in-flight. The honest treatment: preserve what the plan prescribed, then explain the gap.
+
+- **Grafana base image**: plan referenced `grafana/grafana:11.4.0-oss`; that tag doesn't exist on Docker Hub. Real OSS-only tag is `grafana/grafana-oss:11.4.0` (separate repo). Dockerfile uses the correct tag.
+- **Grafana build-time user**: plan's Dockerfile sketch didn't specify `USER`; image default is `grafana` (non-root), which fails `sed -i` during dashboard substitution because `COPY` leaves files root-owned. Dockerfile switches to `USER root` for build steps and restores `USER grafana` at the end, with `chown -R grafana:root` on the provisioning and dashboards paths.
+- **Datasource `uid`**: plan's `datasources.yaml` didn't set an explicit `uid`. Grafana auto-generates UIDs when unspecified, which can differ between environments and break dashboards referencing `datasource.uid`. Added `uid: prometheus` for determinism.
+- **Prometheus config bind mount**: plan used a relative path (`./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro`). Portainer's "Repository" deploy mode clones into its own internal workspace which isn't host-visible, so relative mounts fail to resolve. Fix: place `prometheus.yml` at an absolute host path (`/volume1/docker/observability/prometheus/prometheus.yml`), populated by the init script via `curl` from the repo's raw URL.
+- **node_exporter `/` mount propagation**: plan used `ro,rslave` (upstream-recommended). Docker refuses `rslave` unless the source mount is `shared` or `slave`; DSM 7.3 mounts `/` as `private`. Simplified to plain `ro`. Tradeoff: no propagation of post-start mount changes into the container, which is fine on a NAS with stable mount topology.
+- **cAdvisor `/var/lib/docker` mount source**: plan used the standard `/var/lib/docker` path. DSM's Container Manager stores Docker state at `/volume1/@docker` (verify per-NAS with `docker info | grep "Docker Root Dir"`). Host source changed; container target (`/var/lib/docker`) stayed the same.
+- **cAdvisor `/dev/disk` mount**: plan included `/dev/disk/:/dev/disk:ro` per upstream recipe; DSM 7.3 doesn't populate `/dev/disk/`. Dropped. Loses device-label fidelity on per-container I/O metrics; host-level disk telemetry comes from SNMP (Feature 002) anyway.
+- **cAdvisor `--disable_metrics` values**: plan included `accelerator` (GPU monitoring). Removed in cAdvisor v0.49.1 as a disable target. Dropped from the flag value.
+- **Service user for Prometheus and Grafana**: plan's implicit assumption was that the image-default users (`nobody:65534` for Prometheus, `grafana:472` for Grafana) would work against the bind-mounted data directories after `chown` to match. Reality: DSM 7.3 blocks writes from low/system UIDs to `/volume1/` paths regardless of POSIX permissions — a DSM security model restriction, not an ACL. Fix: run both services as the DSM admin UID (`1026:100` for `superman:users` on this NAS). `docker-compose.yml` sets `user: "1026:100"` on prometheus and grafana; `scripts/init-nas-paths.sh` chowns bind mounts to match.
+
+Each of these changes has a corresponding commit on `main` with the error message that triggered it. The pattern — upstream Docker recipes assume a standard Linux distro and need adjustment for DSM — will recur in Feature 002+ and should be expected, not treated as a surprise.
+
+---
+
 ## Implementation Phases
 
 Decomposed in detail in [`tasks.md`](./tasks.md). High-level shape:

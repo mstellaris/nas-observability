@@ -12,6 +12,11 @@ services:
     network_mode: host
     restart: unless-stopped
     mem_limit: 280M
+    # Run as the DSM admin UID (1026:100 for "superman:users"). DSM 7.3
+    # blocks writes from low/system UIDs (like the image's default 65534)
+    # to /volume1 paths, so using the image's `nobody` user fails to
+    # create TSDB files on bind-mounted state. Admin UID sidesteps it.
+    user: "1026:100"
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
@@ -29,6 +34,11 @@ services:
     network_mode: host
     restart: unless-stopped
     mem_limit: 140M
+    # Same DSM UID restriction as Prometheus — run as 1026:100 so the
+    # bind-mounted /var/lib/grafana is writable. Grafana's baked-in
+    # provisioning files are world-readable (mode 644), so UID 1026
+    # can still read datasources.yaml, dashboards.yaml, and dashboards/.
+    user: "1026:100"
     environment:
       - GF_SERVER_HTTP_PORT=3030
       - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER}
@@ -50,7 +60,7 @@ services:
       - --storage_duration=1m
       - --housekeeping_interval=30s
       - --docker_only=true
-      - --disable_metrics=percpu,sched,tcp,udp,accelerator,hugetlb,referenced_memory,cpu_topology,resctrl
+      - --disable_metrics=percpu,sched,tcp,udp,hugetlb,referenced_memory,cpu_topology,resctrl
     devices:
       - /dev/kmsg:/dev/kmsg
     cap_add:

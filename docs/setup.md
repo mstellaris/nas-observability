@@ -32,14 +32,16 @@ sudo bash /tmp/init-nas-paths.sh
 Expected output:
 
 ```
-  /volume1/docker/observability/grafana/data  (owner 472:472)
-  /volume1/docker/observability/prometheus/data  (owner 65534:65534)
-  /volume1/docker/observability/prometheus/prometheus.yml  (owner 65534:65534, mode 644)
+  /volume1/docker/observability/prometheus/data  (owner 1026:100)
+  /volume1/docker/observability/grafana/data  (owner 1026:100)
+  /volume1/docker/observability/prometheus/prometheus.yml  (owner 1026:100, mode 644)
 
 NAS paths initialized under /volume1/docker/observability. Populate GRAFANA_ADMIN_USER and
 GRAFANA_ADMIN_PASSWORD in Portainer's stack environment variables, then deploy the stack from
 docker-compose.yml.
 ```
+
+`1026:100` is the UID:GID of this NAS's admin user (`superman:users`). If you're forking onto a different NAS, check with `id <admin-user>` and update both `scripts/init-nas-paths.sh` (the `OWNER` variable) and `docker-compose.yml` (the `user:` directives on the prometheus and grafana services) to match.
 
 The script is safe to re-run — `mkdir -p` and `chown` are idempotent, and the curl step refreshes `prometheus.yml` to the latest committed version. Re-run it any time you bump `prometheus.yml` in the repo (then `curl -X POST http://<nas-ip>:9090/-/reload` to tell Prometheus to pick up the new config without a restart).
 
@@ -83,27 +85,26 @@ If any of these fail, jump to **Troubleshooting** below.
 
 ## Troubleshooting
 
-### Container restart loop — ACL related (the common case)
+### Container restart loop — permission denied on /volume1 bind mount
 
-**Symptom:** One or more containers (typically Prometheus or Grafana) keep restarting. `docker logs <container>` shows permission-denied errors on a bind-mounted path. But `ls -ln /volume1/docker/observability/<service>/data` shows the correct UID.
+**Symptom:** Prometheus or Grafana keep restarting; `docker logs <container>` shows permission-denied writes to a bind-mounted path. Example errors:
+```
+Prometheus:  open /prometheus/queries.active: permission denied
+Grafana:     mkdir: can't create directory '/var/lib/grafana/plugins': Permission denied
+```
+`ls -ln /volume1/docker/observability/<service>/data` shows correct ownership matching the container's user.
 
-**Cause:** DSM's ACLs are shadowing the POSIX permissions. `chown` alone is not sufficient on DSM — Synology layers its own ACLs on top of the standard Linux permission bits, and a stale ACL will silently block writes.
+**Cause:** DSM 7.3 blocks writes from low/system UIDs (like `nobody`/65534 or `grafana`/472) to `/volume1/` paths, regardless of POSIX permissions. This is a DSM security-model restriction, not an ACL. Running the container as its image-default user fails even when `chown` says the user owns the target directory.
 
-**Recovery:**
+**Recovery:** Run the container as the DSM admin UID instead of the image default. This repo already does that — `docker-compose.yml` sets `user: "1026:100"` on prometheus and grafana, and `scripts/init-nas-paths.sh` chowns bind mounts to match. If you see this error on this NAS, re-run the init script (something drifted); if you see it on a fork, the admin UID differs — update the hardcoded `1026:100` in both files to your NAS's admin UID:GID (`id <admin-user>` on the NAS).
+
+If the error symptom is instead about a fresh directory newly created via DSM File Station (rather than via the init script or `mkdir`), DSM may have applied a restrictive ACL. Clear it:
 
 ```bash
-# On the NAS, over SSH:
-sudo synoacltool -del /volume1/docker/observability/prometheus/data
-sudo chown -R 65534:65534 /volume1/docker/observability/prometheus/data
-
-# For Grafana:
-sudo synoacltool -del /volume1/docker/observability/grafana/data
-sudo chown -R 472:472 /volume1/docker/observability/grafana/data
-
-# Then restart the stuck container via Portainer (or `docker restart <name>`).
+sudo synoacltool -del /volume1/docker/observability/<service>/data
+sudo chown -R 1026:100 /volume1/docker/observability/<service>/data
+# Re-running scripts/init-nas-paths.sh does both.
 ```
-
-`scripts/init-nas-paths.sh` already does the `synoacltool -del` preemptively, so hitting this usually means someone recreated the directory through DSM File Station (which re-applies ACLs) or the script wasn't run. Re-running the init script is also a valid recovery.
 
 ### cAdvisor fails to start with capability error
 

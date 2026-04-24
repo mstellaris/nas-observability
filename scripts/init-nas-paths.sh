@@ -20,31 +20,39 @@ set -euo pipefail
 BASE=/volume1/docker/observability
 REPO_RAW=https://raw.githubusercontent.com/mstellaris/nas-observability/main
 
-# Data directories, keyed by container-user UID:GID.
-declare -A DATA_DIRS=(
-  ["prometheus/data"]="65534:65534"
-  ["grafana/data"]="472:472"
+# Bind mounts are chowned to the DSM admin UID:GID (1026:100 for the
+# "superman:users" admin user on this NAS). DSM 7.3 blocks writes from
+# low/system UIDs (the image defaults nobody/65534 for Prometheus and
+# grafana/472 for Grafana) to /volume1 paths, so running containers as
+# their image-default user against a /volume1 bind mount fails with
+# "permission denied". Admin UID sidesteps it; docker-compose.yml's
+# `user: "1026:100"` directives match these chowns.
+#
+# If you fork this onto a NAS where the admin UID:GID differs, change
+# the value here AND in docker-compose.yml for the prometheus and
+# grafana services.
+OWNER=1026:100
+
+declare -a BIND_PATHS=(
+  "prometheus/data"
+  "grafana/data"
 )
 
-for sub in "${!DATA_DIRS[@]}"; do
+for sub in "${BIND_PATHS[@]}"; do
   path="${BASE}/${sub}"
-  owner="${DATA_DIRS[$sub]}"
-
   mkdir -p "${path}"
-  synoacltool -del "${path}" 2>/dev/null || true
-  chown -R "${owner}" "${path}"
-
-  echo "  ${path}  (owner ${owner})"
+  synoacltool -del "${path}" &>/dev/null || true
+  chown -R "${OWNER}" "${path}"
+  echo "  ${path}  (owner ${OWNER})"
 done
 
 # Fetch prometheus.yml into the host path the stack bind-mounts.
-# Must be readable by UID 65534 (the Prometheus container user).
 PROM_CONFIG="${BASE}/prometheus/prometheus.yml"
 curl -fsSL -o "${PROM_CONFIG}" "${REPO_RAW}/config/prometheus/prometheus.yml"
-synoacltool -del "${PROM_CONFIG}" 2>/dev/null || true
-chown 65534:65534 "${PROM_CONFIG}"
+synoacltool -del "${PROM_CONFIG}" &>/dev/null || true
+chown "${OWNER}" "${PROM_CONFIG}"
 chmod 644 "${PROM_CONFIG}"
-echo "  ${PROM_CONFIG}  (owner 65534:65534, mode 644)"
+echo "  ${PROM_CONFIG}  (owner ${OWNER}, mode 644)"
 
 echo
 echo "NAS paths initialized under ${BASE}. Populate GRAFANA_ADMIN_USER and"
