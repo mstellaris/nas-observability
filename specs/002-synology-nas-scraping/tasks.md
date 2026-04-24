@@ -98,7 +98,7 @@ Phase 8 is an observation-only pass; like F001's T027, it's called a pass based 
 **Given** T033's workflow update is merged to `main` via a commit that also touches `docker/grafana/**` or `VERSION` (so the path filter triggers)
 **When** the workflow runs
 **Then** all steps complete successfully within NFR-12's 5-minute soft target
-**And** the "Node.js 20" deprecation annotation from F001 T017 is no longer present. Verify: `gh run view <run-id> --log | grep -iE "node.*20.*(deprecat|remov)" | wc -l` returns `0`. If the warning text format has shifted in recent GHA updates, record the updated grep pattern in the PR description.
+**And** the "Node.js 20" deprecation annotation from F001 T017 is no longer present. Verify with the refined pattern (the original loose pattern `node.*20.*(deprecat|remov)` catches commit-message content that mentions Node 20 in prose, producing false positives; use the canonical annotation text instead): `gh run view <run-id> --log | grep -iE "Node\.js 20 actions are (deprecated|being removed)" | wc -l` returns `0`. Cross-check: running the same pattern against F001's old run (ID `24891472655`) returns `1`, confirming the pattern correctly catches the historical warning when present.
 **And** GHCR receives both `v<semver>` and `sha-<short>` tags per F001's established pattern
 **And** `docker pull ghcr.io/mstellaris/nas-observability/grafana:<new-sha-tag>` succeeds (proves publish works)
 **And** if this task fails, it is addressed as an immediate hotfix PR before F002 proceeds (operational discipline matches F001 T017)

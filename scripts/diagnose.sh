@@ -208,12 +208,18 @@ section_bind_mounts() {
 
 section_ports() {
   print_section 5 "Declared port in-use check"
+  # ss -tlnH is iproute2 v5+ for no-header; DSM's older ss may not support
+  # it and silently returns empty. Use ss -tln and skip the header line
+  # explicitly (portable to both), with netstat as a last-resort fallback.
   local listeners
-  listeners=$(ss -tlnH 2>/dev/null || true)
+  listeners=$(ss -tln 2>/dev/null | awk 'NR>1 {print $4}' || true)
+  if [ -z "$listeners" ]; then
+    listeners=$(netstat -tln 2>/dev/null | awk '/^tcp/ {print $4}' || true)
+  fi
   for entry in "${PORTS_LIST[@]}"; do
     local port expected
     IFS=':' read -r port expected <<<"$entry"
-    if echo "$listeners" | awk '{print $4}' | grep -qE "[:.]${port}\$"; then
+    if echo "$listeners" | grep -qE "[:.]${port}\$"; then
       printf '  %-6s %-16s %s\n' "$port" "(expected: $expected)" "$(status_ok) listening"
     else
       printf '  %-6s %-16s %s\n' "$port" "(expected: $expected)" "$(status_warn) not bound"
