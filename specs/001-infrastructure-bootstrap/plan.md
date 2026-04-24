@@ -187,12 +187,14 @@ No provisioning volume — provisioning is baked into the image, not mounted. Th
 - `--docker_only=true`: ignore non-Docker cgroups (DSM system services), which we don't need metrics for.
 - `--disable_metrics=...`: disables high-cardinality or irrelevant collectors. Kept enabled: `cpu`, `memory`, `network`, `diskIO`, `process`, `app`. These cover everything Principal Feature 003+ app dashboards will query.
 
-**Volumes (read-only host mounts, standard upstream recipe):**
+**Volumes (read-only host mounts, adjusted from the upstream recipe):**
 - `/:/rootfs:ro`
 - `/var/run:/var/run:ro`
 - `/sys:/sys:ro`
-- `/var/lib/docker/:/var/lib/docker:ro`
+- `/volume1/@docker/:/var/lib/docker:ro` — DSM-specific host path
 - `/dev/disk/:/dev/disk:ro`
+
+The upstream recipe mounts `/var/lib/docker` from the host, which is where the Docker daemon stores state on standard Linux distributions. DSM's Container Manager stores Docker state at `/volume1/@docker` instead; `/var/lib/docker` doesn't exist on the host. Verify the path on any given NAS with `docker info | grep "Docker Root Dir"`. The in-container target stays `/var/lib/docker` because that's what cAdvisor expects — only the host source changes.
 
 **Devices & capabilities (narrower than `privileged: true`):**
 ```yaml

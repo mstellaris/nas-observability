@@ -155,6 +155,21 @@ path / is mounted on / but it is not a shared or slave mount
 
 **Recovery:** Already applied in this repo — `docker-compose.yml` uses plain `ro` for the `/:/host/root` mount (no `rslave`). Mount topology on the NAS is stable after boot, so propagation isn't needed. If you ever re-introduce `rslave` from an upstream example, this error returns.
 
+### cAdvisor fails with "Bind mount failed: /var/lib/docker does not exist"
+
+**Symptom:** Deploy fails with:
+```
+Bind mount failed: '/var/lib/docker' does not exist
+```
+
+**Cause:** DSM's Container Manager stores Docker state at `/volume1/@docker`, not the standard Linux `/var/lib/docker`. Most upstream cAdvisor recipes assume the default path.
+
+**Recovery:** Already applied in this repo — `docker-compose.yml` mounts `/volume1/@docker/:/var/lib/docker:ro` for cAdvisor. If you're forking this onto a different NAS and seeing this error, verify your Docker root dir:
+```bash
+docker info | grep "Docker Root Dir"
+```
+and update the host side of cAdvisor's `/var/lib/docker` mount in `docker-compose.yml` to match.
+
 ### Grafana image pull fails as unauthenticated
 
 **Symptom:** Portainer fails to pull `ghcr.io/mstellaris/nas-observability/grafana:...` with an "unauthorized" error.

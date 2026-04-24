@@ -59,7 +59,11 @@ services:
       - /:/rootfs:ro
       - /var/run:/var/run:ro
       - /sys:/sys:ro
-      - /var/lib/docker/:/var/lib/docker:ro
+      # DSM Container Manager stores Docker state at /volume1/@docker,
+      # not the Linux default /var/lib/docker. Mount the real host path
+      # to the conventional in-container path so cAdvisor reads Docker's
+      # metadata (needed for container-name labels on metrics).
+      - /volume1/@docker/:/var/lib/docker:ro
       - /dev/disk/:/dev/disk:ro
 
   node-exporter:
