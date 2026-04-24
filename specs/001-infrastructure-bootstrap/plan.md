@@ -262,13 +262,14 @@ LABEL org.opencontainers.image.revision="${GIT_SHA}"
 apiVersion: 1
 datasources:
   - name: prometheus
+    uid: prometheus
     type: prometheus
     access: proxy
     url: http://localhost:9090
     isDefault: true
     editable: false
 ```
-`editable: false` is deliberate: this datasource is a repo-owned artifact. Nobody should be clicking in the Grafana UI to edit it.
+`editable: false` is deliberate: this datasource is a repo-owned artifact. Nobody should be clicking in the Grafana UI to edit it. Explicit `uid: prometheus` is set so dashboard `datasource.uid` references are deterministic across builds (Grafana auto-generates a UID when one isn't specified, which can differ between environments).
 
 `dashboards/dashboards.yaml`:
 ```yaml
