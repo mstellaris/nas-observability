@@ -108,6 +108,8 @@ This stack observes itself — it scrapes Prometheus, Grafana, cAdvisor, and nod
 
 If you're here expecting any of those, F001's scope is deliberately narrow. The infrastructure is now in place to add them without re-solving the DSM-specific deployment quirks each time.
 
+**For F002 (Synology SNMP scraping + NAS dashboards)**, see [`docs/snmp-setup.md`](snmp-setup.md) — the DSM-side runbook for enabling SNMP on the NAS, populating the exporter's community string, and verifying the `synology` scrape job.
+
 ## Troubleshooting
 
 ### Container restart loop — permission denied on /volume1 bind mount
