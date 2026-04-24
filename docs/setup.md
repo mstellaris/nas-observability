@@ -19,27 +19,31 @@ On your workstation:
 
 ## One-time NAS initialization
 
-The stack binds persistent state to `/volume1/docker/observability/`. Before the first deploy, create those paths with correct ownership and clear DSM's ACLs, which override POSIX permissions on Synology and are the single most common source of Docker restart loops.
+The stack binds persistent state to `/volume1/docker/observability/`. Before the first deploy, create those paths with correct ownership, clear DSM's ACLs (which override POSIX permissions and are the single most common source of Docker restart loops), and pull `prometheus.yml` into a host path the stack bind-mounts.
 
-Copy the init script to the NAS and run it:
+The init script does all of this. Fetch and run it directly from the repo:
 
 ```bash
-# On your workstation:
-scp scripts/init-nas-paths.sh admin@<nas-ip>:/tmp/
-
 # Over SSH on the NAS:
+curl -fsSL -o /tmp/init-nas-paths.sh https://raw.githubusercontent.com/mstellaris/nas-observability/main/scripts/init-nas-paths.sh
 sudo bash /tmp/init-nas-paths.sh
 ```
 
-Expected output (paths listed will vary per service):
+Expected output:
 
 ```
-  /volume1/docker/observability/prometheus/data  (owner 65534:65534)
   /volume1/docker/observability/grafana/data  (owner 472:472)
+  /volume1/docker/observability/prometheus/data  (owner 65534:65534)
+  /volume1/docker/observability/prometheus/prometheus.yml  (owner 65534:65534, mode 644)
 
-NAS paths initialized under /volume1/docker/observability. Populate .env in Portainer's stack
-environment variables, then deploy the stack from docker-compose.yml.
+NAS paths initialized under /volume1/docker/observability. Populate GRAFANA_ADMIN_USER and
+GRAFANA_ADMIN_PASSWORD in Portainer's stack environment variables, then deploy the stack from
+docker-compose.yml.
 ```
+
+The script is safe to re-run — `mkdir -p` and `chown` are idempotent, and the curl step refreshes `prometheus.yml` to the latest committed version. Re-run it any time you bump `prometheus.yml` in the repo (then `curl -X POST http://<nas-ip>:9090/-/reload` to tell Prometheus to pick up the new config without a restart).
+
+**Why `prometheus.yml` lives in a host path instead of being mounted relative from the compose:** Portainer's "Repository" deploy mode clones the repo into its own internal workspace (`/data/compose/<id>/`), which is inside Portainer's container and not visible as that path on the host filesystem. A bind mount declared as `./config/prometheus/prometheus.yml` would resolve on the host to a path that doesn't exist. Host-path mounts dodge this entirely.
 
 **Synology SNMP enablement** is NOT part of this setup — SNMP scraping ships with Feature 002, and its NAS-side configuration (Control Panel → Terminal & SNMP → SNMP tab) is documented there. F001 needs nothing SNMP-related.
 

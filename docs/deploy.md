@@ -22,6 +22,16 @@ Grafana restarts with the new image. Prometheus, cAdvisor, and node_exporter are
 3. Update the compliance checklist in the PR description.
 4. Merge to `main`, then redeploy via Portainer as above.
 
+### Updating `prometheus.yml`
+
+`prometheus.yml` lives in a host path (`/volume1/docker/observability/prometheus/prometheus.yml`), not inside the Portainer clone. See `docs/setup.md` for why. To update it:
+
+1. Edit `config/prometheus/prometheus.yml` in the repo. Commit and push.
+2. Over SSH on the NAS: `sudo bash <(curl -fsSL https://raw.githubusercontent.com/mstellaris/nas-observability/main/scripts/init-nas-paths.sh)`. The init script is idempotent and re-running it refreshes `prometheus.yml` to the new committed version.
+3. Tell Prometheus to reload without restarting: `curl -X POST http://<nas-ip>:9090/-/reload`.
+
+If the reload endpoint returns non-200, `docker logs prometheus` will show the config error. Fix the repo, push, re-run steps 2–3.
+
 ### Rollback
 
 Point the image tag back to a previous value:

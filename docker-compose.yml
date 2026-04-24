@@ -20,7 +20,7 @@ services:
       - --web.enable-lifecycle
       - --web.listen-address=:9090
     volumes:
-      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - /volume1/docker/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - /volume1/docker/observability/prometheus/data:/prometheus
 
   grafana:
