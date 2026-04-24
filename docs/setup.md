@@ -182,6 +182,16 @@ docker info | grep "Docker Root Dir"
 ```
 and update the host side of cAdvisor's `/var/lib/docker` mount in `docker-compose.yml` to match.
 
+### Grafana Dashboards UI is empty even though the stack is healthy
+
+**Symptom:** Grafana login works, the Prometheus datasource is provisioned and healthy, the CI-published image is pulled correctly, but the **Dashboards** page shows nothing. No `Stack Health` dashboard anywhere.
+
+**Cause:** The image baked dashboard JSON into a container path that compose bind-mounts for persistent state. A bind mount **overlays** whatever the image baked at that path — so the dashboards get hidden by the (empty) host directory at runtime. Classic Docker gotcha when mixing "config baked into the image" with "state persisted via bind mount."
+
+**Recovery:** Already applied in this repo. Dashboards live under `/etc/grafana/dashboards/` (not bind-mounted), while `/var/lib/grafana/` is reserved for Grafana's sqlite DB + plugins + renders (which genuinely need to persist). If you're forking and adding a new baked asset, keep config under `/etc/` and state under `/var/lib/` — never bake into a path that's a child of a bind-mount target.
+
+Debug check when "my baked config isn't being picked up" hits a future service: `docker exec <container> ls <expected-path>` shows whatever the bind mount is serving (typically empty on first boot), not what the image baked. Confirms the mask.
+
 ### Grafana image pull fails as unauthenticated
 
 **Symptom:** Portainer fails to pull `ghcr.io/mstellaris/nas-observability/grafana:...` with an "unauthorized" error.

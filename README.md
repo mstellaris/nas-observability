@@ -29,7 +29,7 @@ These are hard caps enforced at every PR, not aspirations. See [`.specify/memory
 
 ## Status
 
-**Feature 001 — Infrastructure Bootstrap:** code complete, first NAS deploy verification in progress.
+**Feature 001 — Infrastructure Bootstrap:** deployed and running on the DS224+; 1-hour memory observation (T027) is the last outstanding step before F001 is formally closed. Retrospective with the 13 DSM-specific fixes that surfaced during first deploy: [`specs/001-infrastructure-bootstrap/retrospective.md`](specs/001-infrastructure-bootstrap/retrospective.md).
 
 What Feature 001 ships: compose stack with the four services above, a custom Grafana image with a baked `Stack Health` meta-dashboard, CI workflow publishing to GHCR on every push to `main`, and the authoritative port allocation table.
 
