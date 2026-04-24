@@ -15,7 +15,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "100 * (raidTotalSize - raidFreeSize) / raidTotalSize",
+          "expr": "100 * (raidTotalSize{raidName=~\"Volume.*\"} - raidFreeSize{raidName=~\"Volume.*\"}) / raidTotalSize{raidName=~\"Volume.*\"}",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "instant": true,
           "legendFormat": "{{raidName}}"
@@ -54,7 +54,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "raidFreeSize",
+          "expr": "raidFreeSize{raidName=~\"Volume.*\"}",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "instant": true,
           "legendFormat": "{{raidName}}"
