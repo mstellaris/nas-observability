@@ -1,0 +1,48 @@
+# NAS Observability Constitution
+
+## Core Principles
+
+### I. Upstream-First, Thin Customization
+Prefer unmodified upstream container images pulled from their canonical registries (Docker Hub for Prometheus, cAdvisor, node_exporter, SNMP exporter, postgres_exporter, etc.). Build and maintain a custom image **only** when a component must carry repo-owned configuration that cannot be mounted at runtime — today this is Grafana alone, which bakes in dashboards and datasource provisioning and is published to GHCR. All images, custom or upstream, are pinned to explicit version tags (never `latest`). Forks of upstream projects are prohibited; if upstream configuration is insufficient, contribute upstream or replace the component.
+
+### II. Declarative Configuration as Source of Truth
+The entire stack is reproducible from this repository. `docker-compose.yml`, provisioning files, alert rules, scrape configs, and the custom Grafana image build context are the spec; the running NAS is a cache of them. No component is configured by clicking in a UI or by SSH-editing files on the NAS. The single documented exception is the one-time Synology SNMP enablement on the NAS itself, which is captured in the repo as a runbook but not automated. A full `docker compose down && docker compose up -d` (or the Portainer equivalent) against a clean Docker state must restore a fully functional stack with zero manual steps beyond that runbook.
+
+### III. Host Networking by Default
+All services run with `network_mode: host`. This is a deliberate, documented response to DSM 7.3 bridge networking limitations already encountered on the DS224+, not a default we inherited. Consequences are accepted and designed around: every service binds a unique host port, scrape targets use `localhost` or the host IP, port collisions surface loudly rather than being hidden by a bridge, and the stack cannot be moved to a non-host-networking host without an explicit constitutional amendment. Any new component must declare its host ports in the compose file and in the port allocation table maintained in the repo.
+
+### IV. Resource Discipline
+The stack operates inside a hard **600 MB total RAM budget** and a **30-day Prometheus retention** ceiling. Every service in `docker-compose.yml` declares an explicit `mem_limit` (and, where meaningful, `cpus`). The sum of per-service limits must not exceed the RAM budget; adding or resizing a service requires showing what gets reduced to stay within it. Retention is enforced via Prometheus `--storage.tsdb.retention.time` and `--storage.tsdb.retention.size` — whichever binds first — and is never quietly extended to cover gaps in dashboards. If the budget is insufficient for a genuine need, amend this constitution rather than silently growing it.
+
+### V. Silent-by-Default Alerting
+The platform is a single-operator homelab tool, not a paging system. Alerts exist only for events that are genuinely actionable by the operator (disk failure, volume degraded, stack down, sustained resource exhaustion). By default, alert delivery is silent — alerts surface in Grafana and Alertmanager UIs only. Optional email delivery is wired but disabled unless explicitly enabled, and is reserved for the subset of alerts marked `severity: critical`. Informational, "nice to know," or flappy alerts are rejected at PR review. Dashboards, not notifications, are the primary observation surface.
+
+## Platform & Technical Constraints
+
+- **Hardware / OS**: Synology DS224+ running DSM 7.3. The stack must not assume kernel features, CPU instructions, or filesystem behaviors beyond what DSM 7.3 provides on this model.
+- **Runtime**: Synology Container Manager with Portainer as the management UI. Compose files must parse under the Compose v2 schema shipped with Container Manager on DSM 7.3.
+- **Registries**: Custom images (currently only Grafana) are published to GHCR under this repo's namespace, tagged with both semantic version and short git SHA. All other images are pulled directly from Docker Hub at pinned versions.
+- **Networking**: `network_mode: host` throughout (see Principle III). A port allocation table in the repo is authoritative; PRs that add a service without updating it are rejected.
+- **NAS-side setup**: Synology SNMP enablement is a one-time manual NAS configuration task, documented as a runbook in the repo. It is intentionally not automated and is out of scope for this compose stack.
+- **Resource envelope**: 600 MB total RAM across all services; 30-day metrics retention (see Principle IV).
+- **Dashboard coverage (scope, not features)**: NAS overview (CPU/RAM/disk/temperature), storage & volumes, network & temperature, generic Docker containers, and per-application dashboards (starting with Mneme, extended for future apps).
+- **Per-application dashboards**: Application-owned dashboards live in the application's own repository under `ops/dashboards/` and are pulled into this stack's custom Grafana image at build time via a CI workflow that clones each consumer repo's `main` branch, copies its `ops/dashboards/` directory, and triggers a Grafana image rebuild. Builds are triggered by both pushes to `nas-observability` and a nightly schedule, so consumer dashboard updates propagate without manual intervention here.
+- **Secrets**: Secrets (SNMP credentials, Grafana admin password, future SMTP passwords) live in a gitignored `.env` file at the repo root, with a `.env.example` committed showing required keys. Out of scope: external secret stores (1Password, Vault) — single-operator setup doesn't justify the overhead.
+
+## Development & Release Workflow
+
+- **Methodology**: All non-trivial changes flow through spec-kit — constitution → `/specify` → `/plan` → `/tasks` → `/implement`. Trivial changes (typo, version bump, README tweak) may go directly via PR.
+- **Branching & review**: Work happens on feature branches and lands on `main` via PR. No direct commits to `main`. No edits are made directly on the NAS filesystem; the NAS only runs what is in a tagged release or `main`.
+- **Custom image builds**: The Grafana image is built from this repo, tagged with both a semantic version and the short git SHA, and pushed to GHCR. The build pulls in application dashboards (see Platform Constraints) at build time — never at container start.
+- **Deploys**: Stack updates are applied via Portainer's "redeploy with new image" flow against the compose file in this repo. Rollbacks are performed by repointing the image tag to a previous published version and redeploying — never by hand-editing on the NAS.
+- **Compliance gates**: Every PR that adds or changes a service verifies: (a) pinned image version, (b) explicit `mem_limit`, (c) total budget still ≤ 600 MB, (d) host ports declared in the allocation table, (e) any new alert rule is actionable and correctly classified. PRs that fail these gates are blocked regardless of other merit.
+
+## Governance
+
+This constitution supersedes README content, ad-hoc decisions, and any prior planning documents. When a spec, plan, or PR conflicts with it, the constitution wins; the conflict is resolved either by changing the spec/plan/PR or by amending the constitution in the same change.
+
+Amendments require a PR that edits this file, bumps the version below per semver (MAJOR for principle removals or incompatible rewrites, MINOR for added principles or materially expanded sections, PATCH for clarifications and typos), and updates the Last Amended date. Amendments that change a principle must briefly note what concrete decision or incident prompted the change in the PR description, so future readers can judge whether the reasoning still holds.
+
+Specs and plans produced under `/specify` and `/plan` must cite the principles they rely on when making tradeoffs (e.g., "per Principle IV, we drop postgres_exporter's default histogram buckets to stay in budget"). Any future TBD items introduced by amendment are debts, not permanent holes: they must be resolved by a subsequent amendment before the code they gate is implemented.
+
+**Version**: 1.0.0 | **Ratified**: 2026-04-23 | **Last Amended**: 2026-04-23
