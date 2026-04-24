@@ -15,21 +15,21 @@ Adding a new service picks a port from within an existing range — never invent
 | 9090–9099   | Prometheus core and adjacent services            |
 | 9100–9199   | Prometheus-ecosystem exporters                   |
 
-## Current assignments (Feature 001)
+## Current assignments
 
-| Port   | Service        | Range           |
-|--------|----------------|-----------------|
-| 3030   | Grafana        | 3000–3099       |
-| 8081   | cAdvisor       | 8080–8099       |
-| 9090   | Prometheus     | 9090–9099       |
-| 9100   | node_exporter  | 9100–9199       |
+| Port   | Service        | Range           | Feature |
+|--------|----------------|-----------------|---------|
+| 3030   | Grafana        | 3000–3099       | F001    |
+| 8081   | cAdvisor       | 8080–8099       | F001    |
+| 9090   | Prometheus     | 9090–9099       | F001    |
+| 9100   | node_exporter  | 9100–9199       | F001    |
+| 9116   | snmp_exporter  | 9100–9199       | F002    |
 
 ## Reserved for later features
 
 | Port   | Service                  | Range     | Feature    |
 |--------|--------------------------|-----------|------------|
 | 9093   | Alertmanager             | 9090–9099 | Alerting (TBD) |
-| 9116   | SNMP exporter            | 9100–9199 | F002       |
 | 9187   | postgres_exporter        | 9100–9199 | F003+      |
 
 When these features land, they update the table above (moving the reservation into "Current assignments") rather than adding a new entry.

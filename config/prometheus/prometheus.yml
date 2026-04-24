@@ -19,3 +19,26 @@ scrape_configs:
     scrape_interval: 30s
     static_configs:
       - targets: ['localhost:8081']
+
+  # SNMP scrape of the Synology NAS itself via snmp-exporter.
+  # Timing: 60s interval + 10s timeout chosen per plan.md §D3 Tier 1
+  # (measured max 0.61s over 5 samples — ~16x headroom on the timeout).
+  # snmp-exporter's idiomatic path: Prometheus queries the exporter at
+  # /snmp?target=<nas>&module=synology; relabel rewrites __address__ to
+  # localhost:9116 (host-networked) while keeping instance label as the
+  # target (localhost here since we scrape the NAS's own SNMP daemon).
+  - job_name: synology
+    scrape_interval: 60s
+    scrape_timeout: 10s
+    metrics_path: /snmp
+    params:
+      module: [synology]
+    static_configs:
+      - targets: ['localhost']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: localhost:9116

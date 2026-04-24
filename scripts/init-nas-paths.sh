@@ -36,6 +36,7 @@ OWNER=1026:100
 declare -a BIND_PATHS=(
   "prometheus/data"
   "grafana/data"
+  "snmp_exporter"
 )
 
 for sub in "${BIND_PATHS[@]}"; do
@@ -58,6 +59,46 @@ synoacltool -del "${PROM_CONFIG}" &>/dev/null || true
 chown "${OWNER}" "${PROM_CONFIG}"
 chmod 644 "${PROM_CONFIG}"
 echo "  ${PROM_CONFIG}  (owner ${OWNER}, mode 644)"
+
+# SNMP exporter: verify .community exists (one-time operator action per
+# docs/snmp-setup.md §Step 3), then render snmp.yml.template via sed
+# (DSM doesn't ship envsubst; sed handles ${VAR} token substitution
+# with $ as literal when followed by {). If .community is missing,
+# emit an inline recovery snippet so the operator can fix it from the
+# error output without bouncing to the doc.
+COMMUNITY_FILE="${BASE}/snmp_exporter/.community"
+SNMP_CONFIG="${BASE}/snmp_exporter/snmp.yml"
+
+if [ ! -s "${COMMUNITY_FILE}" ]; then
+  cat >&2 <<EOF
+
+ERROR: SNMP exporter config cannot be rendered —
+  ${COMMUNITY_FILE}
+is missing or empty.
+
+To fix (one-time, per NAS):
+  sudo mkdir -p ${BASE}/snmp_exporter
+  sudo bash -c 'echo "<your-community-string>" > ${COMMUNITY_FILE}'
+  sudo chmod 600 ${COMMUNITY_FILE}
+  sudo chown ${OWNER} ${COMMUNITY_FILE}
+
+Then re-run this script. Full context: docs/snmp-setup.md §Step 3.
+EOF
+  exit 1
+fi
+
+# Render snmp.yml from the committed template.
+SNMP_TEMPLATE_TMP=$(mktemp)
+curl -fsSL -o "${SNMP_TEMPLATE_TMP}" "${REPO_RAW}/config/snmp_exporter/snmp.yml.template"
+community=$(cat "${COMMUNITY_FILE}")
+sed 's|${SYNOLOGY_SNMP_COMMUNITY}|'"${community}"'|g' "${SNMP_TEMPLATE_TMP}" > "${SNMP_CONFIG}"
+rm -f "${SNMP_TEMPLATE_TMP}"
+unset community
+
+synoacltool -del "${SNMP_CONFIG}" &>/dev/null || true
+chown "${OWNER}" "${SNMP_CONFIG}"
+chmod 644 "${SNMP_CONFIG}"
+echo "  ${SNMP_CONFIG}  (owner ${OWNER}, mode 644)"
 
 echo
 echo "NAS paths initialized under ${BASE}. Populate GRAFANA_ADMIN_USER and"

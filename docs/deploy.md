@@ -22,6 +22,16 @@ Grafana restarts with the new image. Prometheus, cAdvisor, and node_exporter are
 3. Update the compliance checklist in the PR description.
 4. Merge to `main`, then redeploy via Portainer as above.
 
+### Updating `snmp.yml`
+
+`snmp.yml` is rendered on the NAS by `scripts/init-nas-paths.sh` from two inputs: the committed `config/snmp_exporter/snmp.yml.template` and the NAS-local `/volume1/docker/observability/snmp_exporter/.community` secret file (see `docs/snmp-setup.md` §Step 3). To update:
+
+1. Edit `config/snmp_exporter/snmp.yml.template` in the repo — walk subtrees, metric definitions, module structure, but never the community string (which stays as the `${SYNOLOGY_SNMP_COMMUNITY}` token). Commit and push.
+2. Over SSH on the NAS: `sudo bash <(curl -fsSL https://raw.githubusercontent.com/mstellaris/nas-observability/main/scripts/init-nas-paths.sh)`. The init script is idempotent and re-rendering from the new template is a no-op for everything else.
+3. Restart the `snmp-exporter` container so it reloads `/etc/snmp_exporter/snmp.yml`: `sudo docker restart snmp-exporter`. SNMP exporter doesn't have a lifecycle-reload endpoint like Prometheus does, so a restart is required.
+
+If the container fails to restart cleanly, `docker logs snmp-exporter` typically shows a YAML parse error or a reference to an OID the NAS doesn't expose.
+
 ### Updating `prometheus.yml`
 
 `prometheus.yml` lives in a host path (`/volume1/docker/observability/prometheus/prometheus.yml`), not inside the Portainer clone. See `docs/setup.md` for why. To update it:

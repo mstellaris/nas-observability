@@ -149,3 +149,8 @@ vite.config.ts.timestamp-*
 
 # Defensive: local bind-mount targets if someone runs the stack from the repo root
 /data/
+
+# Belt-and-suspenders: the SNMP community string file lives on the NAS only,
+# never in the repo. Covers accidental commit from a local clone that
+# happened to mirror the NAS layout.
+*.community

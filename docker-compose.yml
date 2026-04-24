@@ -89,6 +89,34 @@ services:
       # without it, per-container I/O still works, we just lose device
       # labels. Host-level disk telemetry lives under SNMP (Feature 002).
 
+  snmp-exporter:
+    image: prom/snmp-exporter:v0.28.0
+    container_name: snmp-exporter
+    network_mode: host
+    restart: unless-stopped
+    mem_limit: 40M
+    # Constitution v1.1 §DSM UID restriction: run as DSM admin UID so
+    # future bind-mount writes to /volume1 work without permission
+    # shenanigans. snmp-exporter doesn't write to bind mounts today
+    # (config is read-only), but setting user: explicitly from day one
+    # avoids having to remember this later if we ever add a writable
+    # mount (e.g., for snmp_exporter cache).
+    user: "1026:100"
+    # snmp.yml is rendered on the NAS by scripts/init-nas-paths.sh from
+    # the committed template + local .community file. See plan.md
+    # §Community string handling.
+    volumes:
+      - /volume1/docker/observability/snmp_exporter/snmp.yml:/etc/snmp_exporter/snmp.yml:ro
+    # /metrics is always exposed and returns 200 when the exporter is
+    # healthy. /-/ready doesn't exist in v0.28 (added in later versions);
+    # /metrics is the portable health probe across snmp_exporter versions.
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9116/metrics"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
   node-exporter:
     image: prom/node-exporter:v1.8.2
     container_name: node-exporter
