@@ -47,8 +47,11 @@ for sub in "${BIND_PATHS[@]}"; do
   # DSM creates directories under /volume1/docker/ with POSIX mode 0000
   # and an ACL, so even after chown the owner has no POSIX perms and the
   # ACL may not grant UID 1026 access. Explicit chmod restores POSIX
-  # rwxr-xr-x, which is enough for the container to write.
-  chmod -R 0755 "${path}"
+  # rwxr-xr-x on the directory itself. NOT recursive — the snmp_exporter
+  # directory contains .community which must stay mode 600 (secret file),
+  # and container-created files inside prometheus/data and grafana/data
+  # already have appropriate modes.
+  chmod 0755 "${path}"
   echo "  ${path}  (owner ${OWNER}, mode 0755)"
 done
 
@@ -68,6 +71,13 @@ echo "  ${PROM_CONFIG}  (owner ${OWNER}, mode 644)"
 # error output without bouncing to the doc.
 COMMUNITY_FILE="${BASE}/snmp_exporter/.community"
 SNMP_CONFIG="${BASE}/snmp_exporter/snmp.yml"
+
+# Preserve .community mode 600 even if something upstream (re-run, fat-
+# fingered chmod, DSM UI-based file-copy) touched it. Secret file should
+# only be readable by its owner.
+if [ -f "${COMMUNITY_FILE}" ]; then
+  chmod 600 "${COMMUNITY_FILE}"
+fi
 
 if [ ! -s "${COMMUNITY_FILE}" ]; then
   cat >&2 <<EOF
