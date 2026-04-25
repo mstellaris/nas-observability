@@ -75,7 +75,14 @@ Total commits during deploy + polish: 8. F001 was 13.
 
 Two items deferred during F002 and explicitly pulled forward into F003's scope for consideration:
 
-1. **Replace `snmp.yml.template` with walkgen output** (Spec D2 primary path). The currently-committed 2345-line community config works fine but contains metric definitions for OIDs the three dashboards don't consume. Walkgen against this specific DS224+ + post-walk pruning would yield a tighter ~300–500 line template with zero phantom metric definitions. Not blocking — the community version is functionally complete and the `TODO: replace with walkgen output` comment in the template header already flags it. Worth doing as a post-F002 polish PR when MIB-file-on-NAS tooling is convenient.
+1. **Replace `snmp.yml.template` with walkgen output** (Spec D2 primary path). The currently-committed 2345-line community config works fine but contains metric definitions for OIDs the three dashboards don't consume. Walkgen against this specific DS224+ + post-walk pruning would yield a tighter ~300–500 line template with zero phantom metric definitions. Not blocking — the community version is functionally complete and the `TODO: replace with walkgen output` comment in the template header already flags it. Worth doing as a post-F002 polish PR when any of the following triggers fires:
+
+   - **DSM major upgrade** (OID tree may shift; community config could go stale)
+   - **A new panel needs an OID the community config doesn't expose** (forces walkgen anyway)
+   - **The 2345-line config begins affecting scrape duration trends** (currently 600ms baseline; ample headroom, no pressure)
+   - **Six-month routine maintenance window**
+
+   If none of these fire, the community config remains in production indefinitely — that's an acceptable steady state, not a known debt. The `TODO: replace with walkgen output` comment in the template header serves as the in-code reminder.
 
 2. **Multi-arch Grafana image** (amd64 + arm64) per Spec D6. Deferred in F002 because QEMU-based arm64 builds in GHA triple build time (~40s → ~2–3 min per push) without concrete dev-frequency justification yet. Native arm64 GHA runners are in limited beta as of early 2026; revisit when they're generally available — that eliminates the emulation tax and makes multi-arch essentially free.
 
@@ -87,6 +94,7 @@ F003 opens with these priors from F002 memory:
 
 - **Application scraping** starts with Mneme's `/metrics` endpoints. Mneme-side instrumentation is a separate concern; F003's job is the scrape + dashboard side.
 - **Consumer-dashboard CI sync** finally ships. The mechanism was described in the constitution at ratification (v1.0.0) but intentionally deferred. F003 adds the CI workflow step that clones each consumer repo's `main`, copies its `ops/dashboards/`, and triggers a Grafana image rebuild.
+- **Cross-repo dependency:** F003's consumer-dashboard sync mechanism depends on Mneme Feature 008 (the instrumentation contract) shipping first — otherwise the CI workflow has nothing to clone (Mneme's `ops/dashboards/` won't exist yet) and no `/metrics` endpoints to scrape. If Mneme F008 isn't ready when F003 work begins, F003 can ship the infrastructure half (CI workflow scaffolding, postgres_exporter, nightly GHA `schedule:` trigger) without the Mneme-specific scrape job and dashboards, deferring those to F004. Path A from F002's close-out plan (pivot to Mneme F008 first, then return to F003) avoids the split.
 - **Nightly GHA `schedule:` trigger** deferred from F001 ships with F003. The rationale for the deferral was "no consumer dashboards to propagate yet"; F003 removes that rationale.
 - **postgres_exporter** (reserved at port 9187) joins the stack. Memory allocation within the 600 MB cap; revisit cAdvisor's observed 30 MB / 90 MB limit for potential donation.
 - **All three v1.1 Platform Constraints apply from F003 day one**: Mneme scraping from inside host-networked containers to Mneme's app port, Grafana consuming Mneme dashboards via the sync mechanism into `/etc/grafana/dashboards/mneme/`, datasource references by explicit UID.
