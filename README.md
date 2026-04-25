@@ -29,11 +29,11 @@ These are hard caps enforced at every PR, not aspirations. See [`.specify/memory
 
 ## Status
 
-**Feature 001 — Infrastructure Bootstrap:** complete (2026-04-24). Deployed and running on the DS224+; memory observation (T027) passed with 60% headroom across the whole stack budget. Retrospective with the 13 DSM-specific fixes that surfaced during first deploy: [`specs/001-infrastructure-bootstrap/retrospective.md`](specs/001-infrastructure-bootstrap/retrospective.md).
+**Feature 001 — Infrastructure Bootstrap:** complete (2026-04-24). The baseline observability stack (Prometheus, Grafana, cAdvisor, node_exporter) running on the DS224+. Retrospective: [`specs/001-infrastructure-bootstrap/retrospective.md`](specs/001-infrastructure-bootstrap/retrospective.md).
 
-What Feature 001 ships: compose stack with the four services above, a custom Grafana image with a baked `Stack Health` meta-dashboard, CI workflow publishing to GHCR on every push to `main`, and the authoritative port allocation table.
+**Feature 002 — Synology SNMP Scraping & Dashboards:** complete (2026-04-25). Adds an SNMP exporter that scrapes the NAS via SNMPv2c plus three baked Grafana dashboards (NAS Overview, Storage & Volumes, Network & Temperature). Also lands `scripts/diagnose.sh` (one-command stack diagnostic) and the GHA Node.js 24 migration. 24-hour stability observation passed with no scrape-duration drift and no NAS CPU footprint. Retrospective: [`specs/002-synology-nas-scraping/retrospective.md`](specs/002-synology-nas-scraping/retrospective.md).
 
-What it explicitly does not ship: Synology SNMP scraping (Feature 002), application scraping and app dashboards (Feature 003+), Alertmanager and email delivery (dedicated alerting feature), reverse proxy for external access (separate feature).
+Combined scope shipped (F001 + F002): five-service stack at the 600 MB constitutional cap, four Grafana dashboards rendering live data, full DSM-side runbooks for SNMP enablement, and an operator-side diagnostic tool. Things still not shipped: application scraping (Feature 003+), Alertmanager (dedicated alerting feature), and external-access reverse proxy (separate feature).
 
 ## Getting started
 
@@ -53,8 +53,8 @@ The current constitution is at version 1.0.0 (ratified 2026-04-23); see [`.speci
 ## Roadmap
 
 - **F001** — Infrastructure bootstrap. The baseline stack observing itself and the host. *Complete (2026-04-24).*
-- **F002** — Synology SNMP scraping, Synology MIBs, and NAS-specific dashboards (CPU, RAM, disk, temperature, volumes).
-- **F003+** — Application scraping (first consumer: Mneme), with per-app dashboards pulled into the Grafana image at build time via CI.
+- **F002** — Synology SNMP scraping, NAS dashboards (CPU, RAM, disk, temperature, volumes, network), `scripts/diagnose.sh`, GHA Node.js 24 migration. *Complete (2026-04-25).*
+- **F003+** — Application scraping (first consumer: Mneme), with per-app dashboards pulled into the Grafana image at build time via CI. The deferred nightly GHA `schedule:` trigger ships here alongside the consumer-dashboard sync step it serves.
 - **Alerting feature** (unscheduled) — Alertmanager plus optional SMTP delivery for a narrow set of critical alerts. Lands once there are enough consumer apps to make silent-alert-only untenable.
 
 ## License

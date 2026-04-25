@@ -2,8 +2,8 @@
 
 **Feature Branch:** `002-synology-nas-scraping`
 **Spec:** [`spec.md`](./spec.md) · **Plan:** [`plan.md`](./plan.md) · **Tasks:** [`tasks.md`](./tasks.md)
-**Status:** Code complete; 24-hour stability observation (T055/T056) pending before formal close
-**Retrospective written:** 2026-04-24
+**Status:** **Complete (2026-04-25)** — all acceptance scenarios passed including T055 + T056
+**Retrospective written:** 2026-04-24, finalized 2026-04-25
 
 ---
 
@@ -11,9 +11,7 @@
 
 Feature 002 extended F001's stack with Synology-specific metrics and three NAS dashboards. Phase 7 (DS224+ deploy) completed cleanly, with only 4 in-flight fixes compared to F001's 13 — the direct payoff from Constitution v1.1's platform constraints doing their job at design time.
 
-**Stack state post-F002:** 5 containers running (Prometheus, Grafana, cAdvisor, node_exporter, snmp-exporter), 4 Prometheus scrape jobs all UP, 4 Grafana dashboards all rendering live data. Memory allocation at 600 MB cap exactly; observed usage well below.
-
-T055 (24h scrape duration stability) and T056 (no NAS CPU scrape-correlated pattern) are outstanding. Code complete; observation pending.
+**Stack state post-F002:** 5 containers running (Prometheus, Grafana, cAdvisor, node_exporter, snmp-exporter), 4 Prometheus scrape jobs all UP, 4 Grafana dashboards all rendering live data. Memory allocation at 600 MB cap exactly; observed usage well below. 24-hour stability observation (T055/T056) passed with no scrape-duration drift and no NAS CPU footprint from scrapes — see T055 + T056 outcomes section below.
 
 ---
 
@@ -104,8 +102,12 @@ Notable that F002's deploy surfaced no new *systemic* DSM gotchas — the envsub
 
 ---
 
-## Outstanding
+## T055 + T056 — observation outcomes (2026-04-25)
 
-- **T055** — 24-hour scrape duration stability observation (NFR-9). Check Stack Health dashboard's Scrape Duration panel at ~24h post-deploy; `synology` job should be a stable line around 0.5–0.6s, not climbing.
-- **T056** — NAS CPU scrape-correlated pattern check (NFR-10). Check NAS Overview's CPU time series over the 24h window; no sustained sawtooth pattern correlated to the 60s scrape cadence.
-- When both observations pass: update Status line above to `Complete (<date>)`, flip the "Outstanding" section content, and the feature formally closes.
+**T055 NFR-9 — scrape duration stability:** PASS. Over the 24-hour window, the `synology` scrape job's baseline held flat at ~600ms (matching T039's 0.61s measurement). Intermittent spikes reached ~1s in a handful of cases — well within the 10s timeout's ~10× headroom — and showed no upward drift. No leak indicator (would manifest as a climbing line over time). cAdvisor at ~150–200ms, node_exporter at ~50–80ms, Prometheus self-scrape near zero, all stable.
+
+**T056 NFR-10 — no scrape-correlated CPU pattern:** PASS. NAS Overview CPU graph over 24h shows three discrete workload spikes (afternoon, evening, morning — real activity events) on a flat ~5% baseline. Not the regular 60s sawtooth that would indicate SNMP scrape overhead; the SNMP daemon's footprint is below CPU panel resolution. RAM held flat at 5–7% throughout. Load Average tracked CPU activity as expected (transient spikes, no sustained elevation).
+
+**T028-equivalent (conditional cAdvisor tuning) was not needed in F002**: cAdvisor's allocation is unchanged from F001 and observed memory remained well below its 90M cap.
+
+Feature is formally complete.
