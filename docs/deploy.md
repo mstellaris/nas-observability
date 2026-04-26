@@ -46,7 +46,12 @@ The same flow applies to `stack/` and `synology/` dashboard updates.
 `snmp.yml` is rendered on the NAS by `scripts/init-nas-paths.sh` from two inputs: the committed `config/snmp_exporter/snmp.yml.template` and the NAS-local `/volume1/docker/observability/snmp_exporter/.community` secret file (see `docs/snmp-setup.md` §Step 3). To update:
 
 1. Edit `config/snmp_exporter/snmp.yml.template` in the repo — walk subtrees, metric definitions, module structure, but never the community string (which stays as the `${SYNOLOGY_SNMP_COMMUNITY}` token). Commit and push.
-2. Over SSH on the NAS: `sudo bash <(curl -fsSL https://raw.githubusercontent.com/mstellaris/nas-observability/main/scripts/init-nas-paths.sh)`. The init script is idempotent and re-rendering from the new template is a no-op for everything else.
+2. Over SSH on the NAS, refresh the host config:
+   ```bash
+   curl -fsSL -o /tmp/init-nas-paths.sh https://raw.githubusercontent.com/mstellaris/nas-observability/main/scripts/init-nas-paths.sh
+   sudo bash /tmp/init-nas-paths.sh
+   ```
+   (DSM's default `/bin/sh` doesn't support process substitution, so download-then-run rather than `<(...)`.) The init script is idempotent and re-rendering from the new template is a no-op for everything else.
 3. Restart the `snmp-exporter` container so it reloads `/etc/snmp_exporter/snmp.yml`: `sudo docker restart snmp-exporter`. SNMP exporter doesn't have a lifecycle-reload endpoint like Prometheus does, so a restart is required.
 
 If the container fails to restart cleanly, `docker logs snmp-exporter` typically shows a YAML parse error or a reference to an OID the NAS doesn't expose.
@@ -56,8 +61,13 @@ If the container fails to restart cleanly, `docker logs snmp-exporter` typically
 `prometheus.yml` lives in a host path (`/volume1/docker/observability/prometheus/prometheus.yml`), not inside the Portainer clone. See `docs/setup.md` for why. To update it:
 
 1. Edit `config/prometheus/prometheus.yml` in the repo. Commit and push.
-2. Over SSH on the NAS: `sudo bash <(curl -fsSL https://raw.githubusercontent.com/mstellaris/nas-observability/main/scripts/init-nas-paths.sh)`. The init script is idempotent and re-running it refreshes `prometheus.yml` to the new committed version.
-3. Tell Prometheus to reload without restarting: `curl -X POST http://<nas-ip>:9090/-/reload`.
+2. Over SSH on the NAS, refresh the host-side config:
+   ```bash
+   curl -fsSL -o /tmp/init-nas-paths.sh https://raw.githubusercontent.com/mstellaris/nas-observability/main/scripts/init-nas-paths.sh
+   sudo bash /tmp/init-nas-paths.sh
+   ```
+   (DSM's default `/bin/sh` doesn't support process substitution, so download-then-run rather than `<(...)`.) The init script is idempotent and re-running it refreshes `prometheus.yml` to the new committed version.
+3. Tell Prometheus to reload without restarting: `curl -X POST http://localhost:9090/-/reload` (from the NAS shell, or use `<nas-ip>:9090` from your workstation).
 
 If the reload endpoint returns non-200, `docker logs prometheus` will show the config error. Fix the repo, push, re-run steps 2–3.
 
