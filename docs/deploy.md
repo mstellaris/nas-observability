@@ -15,6 +15,25 @@ Updates to dashboards, provisioning, or anything under `docker/grafana/` flow th
 
 Grafana restarts with the new image. Prometheus, cAdvisor, and node_exporter are not affected (their image tags live on their own upgrade cadence — each bump is its own PR with the compliance checklist).
 
+### Authoring Mneme dashboards
+
+Mneme dashboards live in `docker/grafana/dashboards/mneme/` (alongside `stack/` and `synology/`). They're authored in a local Grafana editor against the deployed NAS Prometheus, then exported and committed:
+
+1. SSH-tunnel local Grafana at the NAS Prometheus:
+   ```bash
+   ssh -L 9090:localhost:9090 <nas-host>
+   ```
+   Run a local Grafana (Docker or native) with its Prometheus datasource pointing at `http://localhost:9090`. Set the panel/dashboard you're editing to `editable: true` while iterating.
+2. Iterate until panels render correctly. Once done: **Share → Export → Save to file**. Grafana injects four export-environment keys (`__inputs`, `__elements`, `__requires`, `iteration`) that produce noisy diffs across re-exports.
+3. Strip the export noise before committing:
+   ```bash
+   ./scripts/strip-grafana-export-noise.sh docker/grafana/dashboards/mneme/<file>.json
+   ```
+   The script is idempotent; safe to re-run. It only deletes the four export keys — panel/query/layout JSON is preserved exactly.
+4. Commit the cleaned file. The CI workflow rebuilds the Grafana image; deploy follows the "Updating the custom Grafana image" flow above.
+
+The same flow applies to `stack/` and `synology/` dashboard updates.
+
 ### Updating an upstream image (Prometheus / cAdvisor / node_exporter)
 
 1. Bump the image tag in `docker-compose.yml` to the new upstream version.
