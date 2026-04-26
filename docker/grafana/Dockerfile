@@ -16,7 +16,7 @@ COPY provisioning/dashboards/dashboards.yaml /etc/grafana/provisioning/dashboard
 COPY dashboards/ /etc/grafana/dashboards/
 
 COPY scripts/inject-build-metadata.sh /tmp/inject-build-metadata.sh
-RUN sh /tmp/inject-build-metadata.sh "${VERSION}" "${GIT_SHA}" /etc/grafana/dashboards/stack-health.json \
+RUN sh /tmp/inject-build-metadata.sh "${VERSION}" "${GIT_SHA}" /etc/grafana/dashboards/stack/stack-health.json \
  && rm /tmp/inject-build-metadata.sh \
  && chown -R grafana:root /etc/grafana/dashboards /etc/grafana/provisioning
 
