@@ -30,7 +30,7 @@ services:
       - /volume1/docker/observability/prometheus/data:/prometheus
 
   grafana:
-    image: ghcr.io/mstellaris/nas-observability/grafana:v0.1.0
+    image: ghcr.io/mstellaris/nas-observability/grafana:v0.2.0
     container_name: grafana
     network_mode: host
     restart: unless-stopped
