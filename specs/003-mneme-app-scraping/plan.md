@@ -281,14 +281,19 @@ The DO block handles both first-run (CREATE) and re-run (ALTER) cases — lettin
 | worker | Ingestion Duration p50/p95/p99 by parser_type | `histogram_quantile(...) (sum by (le, parser_type) (rate(ingestion_duration_seconds_bucket[5m])))` | Mneme F008 (worker) | ✓ registered, ⏸ unobserved |
 | worker | Parser Confidence (heatmap or histogram) | `parser_confidence_bucket` aggregated by `parser_type` | Mneme F008 (worker) | ✓ registered, ⏸ unobserved |
 | worker | Node.js Process Metrics | same as api (heap, RSS, event-loop lag) | prom-client default | ✓ |
-| database | Active Connections (stat + time series) | `pg_stat_database_numbackends{datname!~"template.*\|postgres"}` | postgres_exporter v0.16.0 | needs verify @ impl |
-| database | Connection Pool Saturation | `pg_stat_database_numbackends / pg_settings_max_connections * 100` | postgres_exporter v0.16.0 | needs verify @ impl |
-| database | Transaction Rate (commit + rollback) | `rate(pg_stat_database_xact_commit[5m]) + rate(pg_stat_database_xact_rollback[5m])` | postgres_exporter v0.16.0 | needs verify @ impl |
-| database | Cache Hit Ratio | `pg_stat_database_blks_hit / (pg_stat_database_blks_hit + pg_stat_database_blks_read) * 100` | postgres_exporter v0.16.0 | needs verify @ impl |
-| database | Slow Queries (count by query_id) | `topk(10, pg_stat_statements_calls)` — **requires `pg_stat_statements` extension** | postgres_exporter v0.16.0 | conditional (panel handles "no data" case) |
-| database | Database Size (per database) | `pg_database_size_bytes{datname!~"template.*"}` | postgres_exporter v0.16.0 | needs verify @ impl |
+| database | Active Connections (stat + time series) | `pg_stat_database_numbackends{datname!~"template.*\|postgres"}` | postgres_exporter v0.16.0 | ✓ verified T075 (labels: `{datid, datname}`) |
+| database | Connection Pool Saturation | `sum(pg_stat_database_numbackends) / on() group_left() pg_settings_max_connections * 100` (label-bridge needed: numbackends has `{datid, datname}`, max_connections has `{server}` only) | postgres_exporter v0.16.0 | ✓ verified T075 (saturation PromQL adjusted from naïve division to bridge mismatched label sets) |
+| database | Transaction Rate (commit + rollback) | `rate(pg_stat_database_xact_commit[5m]) + rate(pg_stat_database_xact_rollback[5m])` | postgres_exporter v0.16.0 | ✓ verified T075 |
+| database | Cache Hit Ratio | `pg_stat_database_blks_hit / (pg_stat_database_blks_hit + pg_stat_database_blks_read) * 100` | postgres_exporter v0.16.0 | ✓ verified T075 |
+| database | Slow Queries (count by query_id) | `topk(10, pg_stat_statements_calls)` — **requires `pg_stat_statements` extension** | postgres_exporter v0.16.0 | ⏸ verified absent T075 (extension not installed in Mneme's Postgres; `noValue` config on panel per spec scenario 7) |
+| database | Database Size (per database) | `pg_database_size_bytes{datname!~"template.*"}` | postgres_exporter v0.16.0 | ✓ verified T075 (labels: `{datname}` only — no `datid`, asymmetric vs `pg_stat_database_*`) |
 
 **Verification at impl time:** the api/worker rows are confirmed via the operator's spec-time curl. The database rows depend on postgres_exporter v0.16.0's metric naming. Plan-time task: pull the image, run `curl -s http://localhost:9187/metrics | grep -E "^# HELP" | head -50` to confirm the actual exposed metric names match this table. Any divergence from this table gets fixed before the dashboard JSONs reference the metric.
+
+**T075 outcome (2026-04-25):** all six database-row metric names verified live against postgres_exporter v0.16.0 talking to Mneme's Postgres on the DS224+. Zero renames vs. plan; label sets surfaced two impl notes captured in the table above:
+- `pg_settings_max_connections` carries only `{server="localhost:5433"}` — no `datname`. The Connection Pool Saturation panel needs `on()` or `ignoring(datname, datid)` to reconcile the label sets; naïve element-wise division across `pg_stat_database_numbackends / pg_settings_max_connections` returns empty.
+- `pg_database_size_bytes` carries `{datname}` only (no `datid`), unlike `pg_stat_database_*` which expose both. Panels mixing the two metrics must avoid joining on `datid`.
+- `pg_stat_statements_calls` absent — extension not installed in Mneme's Postgres. Slow Queries panel will render with the `noValue` string per Spec scenario 7 (option (c) in §"No data" mechanism below). Operator can optionally enable the extension per `docs/mneme-setup.md` troubleshooting; not required for F003 completion.
 
 **Anti-pattern defense:** any panel whose metric isn't in either source (Mneme `/metrics` or postgres_exporter `/metrics`) gets dropped before the dashboard JSON ships. Same discipline as F002's D4 traceability gate (T041).
 
