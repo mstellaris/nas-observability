@@ -278,8 +278,8 @@ The DO block handles both first-run (CREATE) and re-run (ALTER) cases — lettin
 | worker | Heartbeat Freshness (over time) | same as above, time series | Mneme F008 (worker) | ✓ |
 | worker | Ingestion Job Counts by State (stat) | `ingestion_jobs_total` by `state` (succeeded / failed / low_confidence) | Mneme F008 (worker) | ✓ pre-registered at zero |
 | worker | Ingestion Job Rate by State (time series) | `sum by (state) (rate(ingestion_jobs_total[5m]))` | Mneme F008 (worker) | ✓ |
-| worker | Ingestion Duration p50/p95/p99 by parser_type | `histogram_quantile(...) (sum by (le, parser_type) (rate(ingestion_duration_seconds_bucket[5m])))` | Mneme F008 (worker) | ✓ |
-| worker | Parser Confidence (heatmap or histogram) | `parser_confidence_bucket` aggregated by `parser_type` | Mneme F008 (worker) | ✓ |
+| worker | Ingestion Duration p50/p95/p99 by parser_type | `histogram_quantile(...) (sum by (le, parser_type) (rate(ingestion_duration_seconds_bucket[5m])))` | Mneme F008 (worker) | ✓ registered, ⏸ unobserved |
+| worker | Parser Confidence (heatmap or histogram) | `parser_confidence_bucket` aggregated by `parser_type` | Mneme F008 (worker) | ✓ registered, ⏸ unobserved |
 | worker | Node.js Process Metrics | same as api (heap, RSS, event-loop lag) | prom-client default | ✓ |
 | database | Active Connections (stat + time series) | `pg_stat_database_numbackends{datname!~"template.*\|postgres"}` | postgres_exporter v0.16.0 | needs verify @ impl |
 | database | Connection Pool Saturation | `pg_stat_database_numbackends / pg_settings_max_connections * 100` | postgres_exporter v0.16.0 | needs verify @ impl |

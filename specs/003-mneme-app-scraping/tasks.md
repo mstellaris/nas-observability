@@ -360,6 +360,7 @@ docker rm -f pg-exporter-test
 **Then** the final JSON has 7 panels per Plan §`mneme/worker.json` composition (heartbeat freshness stat, heartbeat freshness time series, ingestion job counts by state stat × 3, ingestion job rate by state time series, ingestion duration p50/p95/p99 time series, parser confidence heatmap, Node.js process metrics)
 **And** `uid: "mneme-worker"`, `title: "Mneme — Worker"`, `tags: ["mneme", "worker"]`, schemaVersion 39
 **And** the heartbeat-freshness stat uses thresholds: green <30s, yellow 30–120s, red >120s (mirroring future MnemeWorkerDown alert's `> 5m` threshold but tighter for at-a-glance)
+**And** the Ingestion Duration p50/p95/p99 panel and the Parser Confidence panel set `fieldConfig.defaults.noValue` to a custom string (e.g., "Awaiting ingestion runs — Mneme F002 ships the worker code that observes these histograms"). Per T059 outcome (Phase 0), both `ingestion_duration_seconds` and `parser_confidence` are registered (`# HELP` / `# TYPE histogram` present in worker `/metrics`) but emit no series until first `.observe()` call. Mneme F002 hasn't shipped in Mneme yet; until it does, these panels show the noValue text instead of the default "No data."
 **And** all per-panel discipline (datasource.uid, editable:false, strip-script applied) matches T076
 
 ### T078 [P] — Author `mneme/database.json`
