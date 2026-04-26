@@ -1,6 +1,6 @@
 {
   "annotations": {"list": []},
-  "editable": true,
+  "editable": false,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
   "id": null,
@@ -97,7 +97,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m]))",
+          "expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m])) or vector(0)",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "instant": true,
           "legendFormat": ""
