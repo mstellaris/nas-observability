@@ -129,6 +129,27 @@ The base64 → hex password lesson is captured in `docs/mneme-setup.md` directly
 
 **T084 NFR-16 — Mneme `/metrics` scrape duration stability over 24h:** TBD pending 24h observation window. Will check that `mneme-api` and `mneme-worker` scrape durations stay sub-100ms (consistent with F008 T011's CI-measured 1–3ms) with no upward drift. Histogram-registered metrics that are unobserved (parser_confidence, ingestion_duration) should not change scrape size meaningfully — they emit `# HELP` / `# TYPE` lines plus zero series.
 
+### Interim 12h observation (2026-04-26 ~09:11 PDT, T+11.5h post-redeploy)
+
+Data captured at the half-window mark. Recording for transparency; final close-out waits for the full 24h read at ~21:30 PDT to honor the discipline note below.
+
+**Steady-state baselines (current values):**
+
+| Job | Baseline | Threshold | Headroom | Drift over 11h steady-state |
+|---|---|---|---|---|
+| `mneme-api` | 5.3 ms | < 100 ms | ~19× | none visible |
+| `mneme-worker` | 4.3 ms | < 100 ms | ~23× | none visible |
+| `mneme-postgres` | 29.7 ms | spike < 5 s, drift < 2× | ~170× under spike | none visible |
+
+**Initial post-deploy warm-up (21:15–22:00 PDT 2026-04-25):** mneme-postgres ~0.65 s on first scrape, mneme-api ~0.3 s, mneme-worker ~0.25 s. Settled within the first ~30 min. Cause: postgres-exporter establishing its first DB connection plus uncached `pg_stat_*` views; Mneme api/worker prom-client registries serializing for the first time post-restart; Prometheus's WAL replay competing for I/O. Expected, not anomalous.
+
+**Anomalies visible in 12h:** two small blips around 00:30 and ~04:30 PDT, both well under 50 ms — almost certainly DSM scheduled tasks (Hyper Backup, package updates) creating brief I/O contention on the underlying disks. Not in any threshold-breach territory.
+
+**What 12h doesn't yet cover (waits for the full window):**
+- Daytime Mneme usage patterns — counters increment, histograms accumulate observations as the user actively uses Mneme during the day. The 12h window we have is mostly overnight.
+- Daytime DSM scheduled tasks (different cadence from overnight).
+- The first full diurnal cycle, which by definition needs 24h.
+
 **Observation discipline note** (carried from F002 retro): honor the 24h discipline even when 6h looks clean. Diurnal patterns matter — Hyper Backup, scheduled jobs, day/night usage variance for a PKM tool — and Mneme + postgres_exporter are net-new behaviors here, not characterized at production scale. F002's 24h observation surfaced no anomalies; that's not a guarantee F003 will be the same.
 
 Outcomes will be recorded post-window. Anomalies generate follow-up issues; do not block F003 close (mirrors F001 T028 / F002 T056 pattern).
