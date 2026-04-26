@@ -15,10 +15,12 @@ This runbook is the F003-equivalent of `docs/snmp-setup.md` (F002's SNMP enablem
 On the NAS shell (or your workstation; copy the output to the NAS):
 
 ```bash
-openssl rand -base64 24
+openssl rand -hex 24
 ```
 
-Outputs a 32-char URL-safe random string. **Save it now** — Step 3 needs it again, and after that it lives in Portainer's stack environment field. There's no other copy.
+Outputs a 48-char hex string (192 bits of entropy). **Save it now** — Step 3 needs it again, and after that it lives in Portainer's stack environment field. There's no other copy.
+
+**Why hex, not `-base64`:** `openssl rand -base64 24` outputs `[A-Za-z0-9+/=]`, and `+`, `/`, `=` are reserved characters in URLs. When postgres_exporter expands `${POSTGRES_METRICS_PASSWORD}` into its `DATA_SOURCE_NAME` URI, Go's URL parser splits the DSN at the first `/` in the password — silently mangling the connection string. Hex (`[0-9a-f]`) is unambiguously URL-safe. See troubleshooting entry "Error opening connection to database... invalid port" if a previously-generated base64 password is still in production.
 
 For the rest of this runbook, the saved value is referenced as `${METRICS_PW}`. Set it in your shell so the commands below work as written:
 
@@ -131,6 +133,7 @@ If `cat /tmp/provision.sql` shows `DO $$` (correct) but Postgres still rejects i
 
 - **`pq: password authentication failed for user "mneme_metrics"`** — the password in Portainer doesn't match the one in Step 2's SQL. Re-do Step 3, then redeploy.
 - **`pq: role "mneme_metrics" does not exist`** — Step 2's DO block didn't execute. Re-run Step 2.
+- **`Error opening connection to database (could not parse DATA_SOURCE_NAME): parse "...": invalid port "..." after host`** — the password contains a URL-reserved character (`/`, `+`, `=`, `@`, `?`, `#`, `:`). Go's URL parser splits the DSN at the offending character and the port lookup fails. Fix: regenerate using `openssl rand -hex 24` (Step 1 above produces hex precisely to avoid this), re-run Step 2 to ALTER the role with the new password, then update Portainer (Step 3). The DO block in Step 2 is idempotent and ALTERs an existing role's password — no manual `DROP USER` needed.
 - **`dial tcp 127.0.0.1:5433: connect: connection refused`** — Mneme's Postgres isn't running on the expected port. Verify with `docker ps --filter name=mneme-postgres`. If Mneme's compose changed `MNEME_PG_PORT`, F003's compose `DATA_SOURCE_NAME` URI needs to match (currently hardcoded to 5433; see Plan §Service Configuration: postgres_exporter for forks).
 
 ### `pg_stat_statements` extension not installed
