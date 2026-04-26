@@ -7,6 +7,11 @@ on:
       - 'docker/grafana/**'
       - 'VERSION'
       - '.github/workflows/build-grafana-image.yml'
+      # F003: prometheus.yml triggers a rebuild so the honor_labels
+      # count gate below runs on every change to the scrape config.
+      # Tradeoff: pure prometheus.yml edits will rebuild the Grafana
+      # image (~40s). Acceptable; image content is unaffected.
+      - 'config/prometheus/prometheus.yml'
   workflow_dispatch:
 
 jobs:
@@ -17,6 +22,22 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v6
+
+      # F003: enforces the consumer-vs-generic-exporter rule for
+      # honor_labels (see specs/003-mneme-app-scraping/plan.md
+      # §honor_labels count gate). Misapplying it is silent at runtime
+      # — Prometheus accepts both forms — so we gate at PR time.
+      - name: Verify honor_labels count in prometheus.yml
+        run: |
+          actual=$(grep -c '^[[:space:]]*honor_labels: true' config/prometheus/prometheus.yml || true)
+          expected=2  # F003: mneme-api + mneme-worker. Update in feature PR when consumers
+                      # with self-identifying instance labels are added (F004+).
+          if [ "$actual" -ne "$expected" ]; then
+            echo "::error::honor_labels count mismatch: found $actual, expected $expected." >&2
+            echo "::error::See specs/003-mneme-app-scraping/plan.md §honor_labels count gate for the consumer-vs-generic discrimination rule." >&2
+            exit 1
+          fi
+          echo "honor_labels count: $actual (matches expected $expected)"
 
       - id: meta
         run: |

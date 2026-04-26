@@ -24,13 +24,13 @@ Adding a new service picks a port from within an existing range — never invent
 | 9090   | Prometheus     | 9090–9099       | F001    |
 | 9100   | node_exporter  | 9100–9199       | F001    |
 | 9116   | snmp_exporter  | 9100–9199       | F002    |
+| 9187   | postgres_exporter | 9100–9199    | F003 (Mneme; shared with any future feature reusing postgres_exporter on a different DB — F004+ adjusts this row if needed) |
 
 ## Reserved for later features
 
 | Port   | Service                  | Range     | Feature    |
 |--------|--------------------------|-----------|------------|
 | 9093   | Alertmanager             | 9090–9099 | Alerting (TBD) |
-| 9187   | postgres_exporter        | 9100–9199 | F003+      |
 
 When these features land, they update the table above (moving the reservation into "Current assignments") rather than adding a new entry.
 

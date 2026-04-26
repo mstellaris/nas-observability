@@ -15,9 +15,9 @@ Updates to dashboards, provisioning, or anything under `docker/grafana/` flow th
 
 Grafana restarts with the new image. Prometheus, cAdvisor, and node_exporter are not affected (their image tags live on their own upgrade cadence — each bump is its own PR with the compliance checklist).
 
-### Authoring Mneme dashboards
+### Updating Mneme dashboards
 
-Mneme dashboards live in `docker/grafana/dashboards/mneme/` (alongside `stack/` and `synology/`). They're authored in a local Grafana editor against the deployed NAS Prometheus, then exported and committed:
+Mneme dashboards live in `docker/grafana/dashboards/mneme/` (alongside `stack/` and `synology/`). The same flow applies whether you're authoring a new dashboard or updating an existing one — edit in a local Grafana editor against the deployed NAS Prometheus, then export and commit:
 
 1. SSH-tunnel local Grafana at the NAS Prometheus:
    ```bash

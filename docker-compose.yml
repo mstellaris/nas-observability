@@ -3,7 +3,8 @@
 # Constitutional constraints:
 #   - All services run network_mode: host (DSM bridge limitations — Principle III).
 #   - Pinned image tags only; no :latest (Principle I).
-#   - Per-service mem_limit sums to 560M; 40M reserved for F002 SNMP exporter (Principle IV).
+#   - Per-service mem_limit sums to exactly 600M (Principle IV cap): 280+140+60+30+40+50.
+#     F003 trimmed cAdvisor (90→60) and node_exporter (50→30) to fund postgres_exporter (50).
 
 services:
   prometheus:
@@ -54,7 +55,7 @@ services:
     container_name: cadvisor
     network_mode: host
     restart: unless-stopped
-    mem_limit: 90M
+    mem_limit: 60M
     command:
       - --port=8081
       - --storage_duration=1m
@@ -122,7 +123,7 @@ services:
     container_name: node-exporter
     network_mode: host
     restart: unless-stopped
-    mem_limit: 50M
+    mem_limit: 30M
     command:
       - --path.rootfs=/host/root
       - --path.procfs=/host/proc
@@ -136,3 +137,27 @@ services:
       # Mount topology on the NAS is stable after boot, so plain ro still
       # captures accurate filesystem metrics.
       - /:/host/root:ro
+
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.16.0
+    container_name: postgres-exporter
+    network_mode: host
+    restart: unless-stopped
+    mem_limit: 50M
+    # No `user:` override: postgres_exporter is stateless (no bind mounts),
+    # so the DSM /volume1 UID restriction doesn't apply. Image default is
+    # fine.
+    environment:
+      # Connects to Mneme's Postgres on localhost:5433 (Mneme owns 5432
+      # for DSM compatibility — see docs/mneme-setup.md). The metrics user
+      # has pg_monitor role; reads pg_stat_* views from the system
+      # `postgres` DB so we don't depend on Mneme's POSTGRES_DB value.
+      # POSTGRES_METRICS_PASSWORD is set in Portainer's stack environment,
+      # NOT in the repo's .env.example. See docs/mneme-setup.md §Step 3.
+      - DATA_SOURCE_NAME=postgresql://mneme_metrics:${POSTGRES_METRICS_PASSWORD}@localhost:5433/postgres?sslmode=disable
+    # No healthcheck: this image is distroless (no shell, no wget, no
+    # curl), so a Docker healthcheck calling those binaries would fail at
+    # container start. Operational health comes from Prometheus's
+    # up{job="mneme-postgres"} (HTTP responding) and pg_up{} (DB
+    # connection healthy) — see plan.md §Service Configuration:
+    # postgres_exporter for the rationale.

@@ -42,3 +42,28 @@ scrape_configs:
         target_label: instance
       - target_label: __address__
         replacement: localhost:9116
+
+  # Mneme application scraping (Feature 003).
+  # honor_labels enabled on api/worker because Mneme bakes self-identifying
+  # labels (service, job, instance="DS224plus:<port>") into its /metrics
+  # output per its F008 contract — preserving them costs nothing and
+  # keeps `instance` accurate. postgres-exporter is a generic exporter
+  # and does NOT bake instance, so the flag stays off there.
+  # See plan.md §Prometheus Scrape Jobs and the count gate in
+  # .github/workflows/build-grafana-image.yml.
+  - job_name: mneme-api
+    honor_labels: true
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['localhost:3000']
+
+  - job_name: mneme-worker
+    honor_labels: true
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['localhost:3001']
+
+  - job_name: mneme-postgres
+    scrape_interval: 30s
+    static_configs:
+      - targets: ['localhost:9187']

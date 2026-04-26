@@ -110,6 +110,8 @@ If you're here expecting any of those, F001's scope is deliberately narrow. The 
 
 **For F002 (Synology SNMP scraping + NAS dashboards)**, see [`docs/snmp-setup.md`](snmp-setup.md) — the DSM-side runbook for enabling SNMP on the NAS, populating the exporter's community string, and verifying the `synology` scrape job.
 
+**For F003 (Mneme application scraping + Mneme dashboards)**, see [`docs/mneme-setup.md`](mneme-setup.md) — the DSM-side runbook for provisioning the read-only `mneme_metrics` Postgres user that `postgres_exporter` uses, and setting `POSTGRES_METRICS_PASSWORD` in Portainer's stack environment.
+
 ## Troubleshooting
 
 ### Container restart loop — permission denied on /volume1 bind mount
