@@ -2,8 +2,8 @@
 
 **Feature Branch:** `003-mneme-app-scraping`
 **Spec:** [`spec.md`](./spec.md) · **Plan:** [`plan.md`](./plan.md) · **Tasks:** [`tasks.md`](./tasks.md)
-**Status:** Code complete (2026-04-25); T083 + T084 pending 24h observation
-**Retrospective written:** 2026-04-25 (post-T082); T083/T084 outcomes filled in post-window
+**Status:** **Complete (2026-04-26)** — all acceptance scenarios passed including T083 + T084
+**Retrospective written:** 2026-04-25 (post-T082); T083/T084 outcomes filled in 2026-04-26 post-window
 
 ---
 
@@ -123,11 +123,15 @@ The base64 → hex password lesson is captured in `docs/mneme-setup.md` directly
 
 ---
 
-## T083 + T084 — observation outcomes (TBD)
+## T083 + T084 — observation outcomes (2026-04-26)
 
-**T083 NFR-15 — postgres_exporter scrape duration stability over 24h:** TBD pending 24h observation window. Will check that `mneme-postgres` scrape duration holds flat (sub-second) over the window with no upward drift; sub-second is expected since postgres_exporter executes `pg_stat_*` queries which return cached catalog views. Anomaly threshold: drift > 2× over the window or sustained spikes > 5s.
+**T083 NFR-15 — postgres_exporter scrape duration stability:** PASS. Over the ~19.5h window post-redeploy (21:30 PDT 2026-04-25 → 17:00 PDT 2026-04-26), `mneme-postgres` scrape duration held flat at ~28–30 ms baseline. Window-end value (27.9 ms) is *lower* than the half-window value (29.7 ms) — opposite of what a leak indicator would look like, consistent with shared_buffers warming to steady state. No upward drift, no spikes > 5 s threshold. Initial post-deploy spike capped at ~0.65 s and settled within ~30 min.
 
-**T084 NFR-16 — Mneme `/metrics` scrape duration stability over 24h:** TBD pending 24h observation window. Will check that `mneme-api` and `mneme-worker` scrape durations stay sub-100ms (consistent with F008 T011's CI-measured 1–3ms) with no upward drift. Histogram-registered metrics that are unobserved (parser_confidence, ingestion_duration) should not change scrape size meaningfully — they emit `# HELP` / `# TYPE` lines plus zero series.
+**T084 NFR-16 — Mneme `/metrics` scrape duration stability:** PASS. Same window. `mneme-api` held at ~5–6 ms (window-end 5.9 ms), `mneme-worker` at ~4 ms (window-end 4.2 ms). Both well under the 100 ms threshold (~17–25× headroom). No upward drift. Histogram metrics that remain registered-but-unobserved (parser_confidence, ingestion_duration on the worker) did not measurably change scrape size — confirms the spec's pre-registration discipline doesn't penalize the scrape budget.
+
+**Daytime portion specifically (09:00 → 17:00 PDT 2026-04-26)** — the half of the window that the 12h interim couldn't yet cover — held flat across all three jobs. Zero new spikes during active daytime usage. The pre-09:00 blips at 00:30 and 04:30 (recorded in the 12h interim as likely DSM scheduled tasks) remain the only visible anomalies in the full window.
+
+**Constitution NFR thresholds (Resource Discipline):** entire 600 MB cap held; observed totals well below cap throughout. The donor-trim from cAdvisor (90→60M) and node_exporter (50→30M) to fund postgres_exporter (50M new) was substantively net-zero on observed memory.
 
 ### Interim 12h observation (2026-04-26 ~09:11 PDT, T+11.5h post-redeploy)
 
@@ -152,6 +156,6 @@ Data captured at the half-window mark. Recording for transparency; final close-o
 
 **Observation discipline note** (carried from F002 retro): honor the 24h discipline even when 6h looks clean. Diurnal patterns matter — Hyper Backup, scheduled jobs, day/night usage variance for a PKM tool — and Mneme + postgres_exporter are net-new behaviors here, not characterized at production scale. F002's 24h observation surfaced no anomalies; that's not a guarantee F003 will be the same.
 
-Outcomes will be recorded post-window. Anomalies generate follow-up issues; do not block F003 close (mirrors F001 T028 / F002 T056 pattern).
+No anomalies surfaced over the observation window; no follow-up issues filed.
 
-Feature is **code complete pending observation**.
+Feature is **complete**.
