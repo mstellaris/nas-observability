@@ -341,7 +341,7 @@ docker rm -f pg-exporter-test
 **Acceptance:**
 
 **Given** the traceability table confirms every panel's metric source
-**When** the operator authors the API dashboard in local Grafana (via SSH tunnel to NAS Prometheus, `editable: true`), iterates panels until renders are correct, exports JSON, runs through `scripts/strip-grafana-export-noise.sh`
+**When** the operator authors the API dashboard directly in the deployed NAS Grafana (LAN-reachable at `http://<nas-ip>:3030` via host networking; `editable: true` set in the dashboard JSON), iterates panels until renders are correct, exports JSON, runs through `scripts/strip-grafana-export-noise.sh`
 **Then** the final JSON has 7 panels per Plan §`mneme/api.json` composition (db_up stat, request rate stat, 5xx stat, request rate by status time series, request rate by route top-10, latency p50/p95/p99 time series, db pool active/idle time series + Node.js process metrics)
 **And** `uid: "mneme-api"`, `title: "Mneme — API"`, `tags: ["mneme", "api"]`, schemaVersion 39
 **And** every panel target declares `datasource.uid: "prometheus"` (FR-37)
