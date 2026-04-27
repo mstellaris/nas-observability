@@ -332,8 +332,9 @@ Three options the spec deferred to plan:
 
 ### Authoring workflow
 
-Per Spec FR-38 — same as F001/F002:
-1. Local Grafana with `editable: true` and a test Prometheus pointed at the live NAS via SSH tunnel (or against snapshotted metric data for offline iteration).
+Per Spec FR-38 — same as F001/F002, with one F003 simplification: the deployed NAS Grafana is LAN-reachable at `http://<nas-ip>:3030` directly because the stack uses host networking, so no local Grafana / no SSH tunnel is needed. Edit directly against the deployed instance.
+
+1. Open the deployed Grafana in a browser at `http://<nas-ip>:3030`. With `editable: true` set in the dashboard JSON, panel-level edits are available in the UI. (No need to spin up a local Grafana or tunnel Prometheus through SSH — the F001/F002 plans documented that pattern but neither feature actually needed it, and DSM blocks SSH TCP forwarding by default anyway.)
 2. Iterate panels in the UI until they render correctly with real data.
 3. Export JSON via Grafana's "Save dashboard → JSON Model" UI.
 4. **Run through `scripts/strip-grafana-export-noise.sh <file>` to remove the four export-environment keys** (FR-39).
@@ -441,7 +442,7 @@ Decomposed in detail in [`tasks.md`](./tasks.md) (next). High-level shape:
 
 **5. Dashboard traceability table verification** — postgres_exporter v0.16.0 metric names cross-checked against the database dashboard's intended PromQL. Any divergence updates the table; any panel without a confirmed metric is dropped.
 
-**6. Mneme dashboards authored** — three dashboards in local Grafana, exported, stripped, committed under `docker/grafana/dashboards/mneme/`.
+**6. Mneme dashboards authored** — three dashboards iterated in the deployed NAS Grafana (LAN-reachable directly via host networking; no SSH tunnel), exported, stripped, committed under `docker/grafana/dashboards/mneme/`.
 
 **7. DS224+ deploy + acceptance** — operator-driven. Re-pull image, redeploy, walk through Spec scenarios 2-10. `diagnose.sh` is the first-line tool if anything misbehaves.
 

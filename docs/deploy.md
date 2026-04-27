@@ -17,13 +17,9 @@ Grafana restarts with the new image. Prometheus, cAdvisor, and node_exporter are
 
 ### Updating Mneme dashboards
 
-Mneme dashboards live in `docker/grafana/dashboards/mneme/` (alongside `stack/` and `synology/`). The same flow applies whether you're authoring a new dashboard or updating an existing one — edit in a local Grafana editor against the deployed NAS Prometheus, then export and commit:
+Mneme dashboards live in `docker/grafana/dashboards/mneme/` (alongside `stack/` and `synology/`). The same flow applies whether you're authoring a new dashboard or updating an existing one — edit directly against the deployed NAS Grafana, then export and commit:
 
-1. SSH-tunnel local Grafana at the NAS Prometheus:
-   ```bash
-   ssh -L 9090:localhost:9090 <nas-host>
-   ```
-   Run a local Grafana (Docker or native) with its Prometheus datasource pointing at `http://localhost:9090`. Set the panel/dashboard you're editing to `editable: true` while iterating.
+1. Open the deployed Grafana in your browser at `http://<nas-ip>:3030` (the stack uses host networking, so Grafana is LAN-reachable directly — no SSH tunnel needed). Log in, navigate to the Mneme folder, open the dashboard you're editing. Temporarily set `editable: true` in the dashboard JSON if it's currently locked down.
 2. Iterate until panels render correctly. Once done: **Share → Export → Save to file**. Grafana injects four export-environment keys (`__inputs`, `__elements`, `__requires`, `iteration`) that produce noisy diffs across re-exports.
 3. Strip the export noise before committing:
    ```bash
