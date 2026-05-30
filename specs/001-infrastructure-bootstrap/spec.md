@@ -1,7 +1,7 @@
 # Feature Specification: Infrastructure Bootstrap
 
 **Feature Branch:** `001-infrastructure-bootstrap`
-**Status:** Draft
+**Status:** Complete (2026-04-24) — see retrospective.md
 **Created:** 2026-04-23
 **Depends on:** Constitution v1.0.0 (ratified 2026-04-23)
 

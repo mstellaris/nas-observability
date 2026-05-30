@@ -1,7 +1,7 @@
 # Feature Specification: Synology NAS Scraping & Dashboards
 
 **Feature Branch:** `002-synology-nas-scraping`
-**Status:** Draft
+**Status:** Complete (2026-04-25) — see retrospective.md
 **Created:** 2026-04-24
 **Depends on:** Feature 001 complete (2026-04-24); Constitution v1.1.0 (amended 2026-04-24)
 

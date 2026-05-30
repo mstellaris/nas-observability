@@ -1,7 +1,7 @@
 # Feature Specification: Mneme Application Scraping & Dashboards
 
 **Feature Branch:** `003-mneme-app-scraping`
-**Status:** Draft
+**Status:** Complete (2026-04-26) — see retrospective.md
 **Created:** 2026-04-26
 **Depends on:** Feature 002 complete (2026-04-25); Constitution v1.2.0 (amended 2026-04-26); Mneme F008 T001-T009 deployed on the NAS (instrumentation backbone live at `localhost:3000/metrics` and `localhost:3001/metrics`); Mneme F008 T013 (`docs/observability.md`) **pending in Mneme parallel work stream — F003 PR cannot merge until T013 has landed and been cross-read against v1.2**.
 
