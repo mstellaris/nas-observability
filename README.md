@@ -23,7 +23,7 @@ Deployed via Docker Compose under Portainer on a Synology DS224+ running DSM 7.3
 
 These are hard caps enforced at every PR, not aspirations. See [`.specify/memory/constitution.md`](.specify/memory/constitution.md) for the full set of principles.
 
-- **600 MB total RAM budget** across all services. Every service declares an explicit `mem_limit`; the sum is verified in the PR compliance checklist.
+- **Two subsystem RAM budgets** — metrics ≤ 600 MB, logs/RUM ≤ 500 MB — kept legibly separate. Every service declares an explicit `mem_limit`; the relevant subsystem's sum is verified in the PR compliance checklist.
 - **30-day Prometheus retention** plus a 5 GB TSDB size cap. Hitting the size cap is a cardinality-regression signal, not a reason to expand.
 - **Host networking throughout.** A deliberate response to DSM 7.3 bridge limitations, not an oversight. Every bound port is tracked in [`docs/ports.md`](docs/ports.md).
 - **Upstream-first.** Pinned upstream images everywhere; a custom image only for Grafana, to bake in repo-owned provisioning. No forks.

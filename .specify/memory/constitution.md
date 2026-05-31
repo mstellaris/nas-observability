@@ -48,7 +48,7 @@ The platform is a single-operator homelab tool, not a paging system. Alerts exis
 - **Branching & review**: Work happens on feature branches and lands on `main` via PR. No direct commits to `main`. No edits are made directly on the NAS filesystem; the NAS only runs what is in a tagged release or `main`.
 - **Custom image builds**: The Grafana image is built from this repo, tagged with both a semantic version and the short git SHA, and pushed to GHCR. All dashboards (stack, NAS, per-application) are baked from this repo at build time — never loaded at container start, never pulled from external sources.
 - **Deploys**: Stack updates are applied via Portainer's "redeploy with new image" flow against the compose file in this repo. Rollbacks are performed by repointing the image tag to a previous published version and redeploying — never by hand-editing on the NAS.
-- **Compliance gates**: Every PR that adds or changes a service verifies: (a) pinned image version, (b) explicit `mem_limit`, (c) total budget still ≤ 600 MB, (d) host ports declared in the allocation table, (e) any new alert rule is actionable and correctly classified. PRs that fail these gates are blocked regardless of other merit.
+- **Compliance gates**: Every PR that adds or changes a service verifies: (a) pinned image version, (b) explicit `mem_limit`, (c) total within the relevant subsystem's cap (metrics ≤ 600 MB, logs/RUM ≤ 500 MB, per Principle IV), (d) host ports declared in the allocation table, (e) any new alert rule is actionable and correctly classified. PRs that fail these gates are blocked regardless of other merit.
 
 ## Governance
 

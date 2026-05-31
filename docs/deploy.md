@@ -82,7 +82,7 @@ Every service addition must satisfy the [compliance checklist](../.github/pull_r
 
 - [ ] Pinned image version (no `:latest`).
 - [ ] Explicit `mem_limit` declared.
-- [ ] Total budget ≤ 600 MB after the change (include arithmetic in PR description).
+- [ ] Total within the relevant subsystem's cap after the change — metrics ≤ 600 MB, logs/RUM ≤ 500 MB, per Principle IV (include arithmetic in PR description).
 - [ ] Port declared in `docs/ports.md` within an existing reserved range.
 - [ ] Bind mount documented if the service persists state.
 
