@@ -150,7 +150,11 @@ section_recent_logs() {
       continue
     fi
     printf '  %s--- %s ---%s\n' "$C_DIM" "$svc" "$C_RESET"
-    docker logs --tail 20 "$svc" 2>&1 | sed 's/^/    /' || echo "    (logs unavailable)"
+    # Wrap in `timeout`: `docker logs --tail` can block on a chatty long-running
+    # container (observed hanging on Grafana under DSM's logging driver), which
+    # would stall the whole diagnostic. 5s is plenty for the last 20 lines;
+    # exceeding it means that container's log fetch is the problem worth noting.
+    timeout 5 docker logs --tail 20 "$svc" 2>&1 | sed 's/^/    /' || echo "    (logs unavailable or timed out after 5s)"
     echo
   done
 }
@@ -217,13 +221,20 @@ section_bind_mounts() {
 
 section_ports() {
   print_section 5 "Declared port in-use check"
-  # ss -tlnH is iproute2 v5+ for no-header; DSM's older ss may not support
-  # it and silently returns empty. Use ss -tln and skip the header line
-  # explicitly (portable to both), with netstat as a last-resort fallback.
-  local listeners
-  listeners=$(ss -tln 2>/dev/null | awk 'NR>1 {print $4}' || true)
-  if [ -z "$listeners" ]; then
-    listeners=$(netstat -tln 2>/dev/null | awk '/^tcp/ {print $4}' || true)
+  # DSM 7.3 ships netstat (net-tools) but NOT ss (iproute2) — invoking ss
+  # leaks "command not found" and yields false "not bound" for every port.
+  # Probe with whichever tool exists, guarded by `command -v` (netstat first
+  # since that's what DSM has); if neither is present, skip with a clear note
+  # rather than reporting every port as not bound.
+  local listeners=""
+  if command -v netstat >/dev/null 2>&1; then
+    listeners=$(netstat -tln 2>/dev/null | awk '/^tcp/ {print $4}')
+  elif command -v ss >/dev/null 2>&1; then
+    listeners=$(ss -tln 2>/dev/null | awk 'NR>1 {print $4}')
+  else
+    printf '  %s(neither netstat nor ss available — skipping; verify manually with: curl -fsS localhost:<port>)%s\n\n' \
+      "$C_WARN" "$C_RESET"
+    return
   fi
   for entry in "${PORTS_LIST[@]}"; do
     local port expected
