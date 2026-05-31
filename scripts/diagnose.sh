@@ -150,7 +150,11 @@ section_recent_logs() {
       continue
     fi
     printf '  %s--- %s ---%s\n' "$C_DIM" "$svc" "$C_RESET"
-    docker logs --tail 20 "$svc" 2>&1 | sed 's/^/    /' || echo "    (logs unavailable)"
+    # Wrap in `timeout`: `docker logs --tail` can block on a chatty long-running
+    # container (observed hanging on Grafana under DSM's logging driver), which
+    # would stall the whole diagnostic. 5s is plenty for the last 20 lines;
+    # exceeding it means that container's log fetch is the problem worth noting.
+    timeout 5 docker logs --tail 20 "$svc" 2>&1 | sed 's/^/    /' || echo "    (logs unavailable or timed out after 5s)"
     echo
   done
 }
