@@ -189,6 +189,14 @@ verification (Mneme's frontend telemetry landing in Loki) is F012's own gate.
   correctly and the `/var/lib/alloy/data` mount is writable (`1026:100`).
 - **`loki/data` restart loop after redeploy:** DSM ACLs — run the
   `synoacltool -del` + `chown` recovery in Step 1.
+- **`timestamp too old, oldest acceptable is …` 400s on a fresh deploy:**
+  **expected, harmless, self-correcting** — NOT a misconfiguration. On first
+  start, Alloy's `loki.source.docker` ships each container's *historical*
+  backlog (Portainer-retained logs can go back weeks). Loki correctly rejects
+  any line older than the 7-day `reject_old_samples` window
+  (`reject_old_samples_max_age: 168h`). The 400s stop on their own once Alloy
+  catches up to logs newer than 7 days. This is `reject_old_samples: true`
+  working as designed, not a bug to fix.
 - **Alloy crash-loop: `mkdir /var/lib/alloy/...: permission denied`:** a
   storage mount must give Alloy a writable *parent*, not just a leaf dir.
   `docker-compose.logs.yml` mounts the `1026:100` host dir as `/var/lib/alloy`
