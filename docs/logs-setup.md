@@ -105,6 +105,13 @@ curl -fsS http://localhost:3110/-/ready         # -> OK
 ports in use, bind-mount ownership). Loki disk usage is the standalone `du`
 check below (§Loki disk-watch).
 
+> **Synthetic beacons land as `service_name="unknown_service"`.** A hand-built
+> verification beacon (the T101 key/CORS/trace-drop/landing check) carries no
+> Faro `app` meta block, so Loki labels it `unknown_service` — expected, not a
+> bug. Real Mneme frontend telemetry carries `app: { name: 'mneme-frontend' }`,
+> so it lands under that name. Query synthetic test signals by their payload
+> body (e.g. a `faro-verify-*` marker), not by `service_name`.
+
 ---
 
 ## Receiver posture (deliberate — read this)
