@@ -82,6 +82,19 @@ Both Grafana datasources healthy (`uid: prometheus` + `uid: loki`); F001–F003 
 
 ---
 
+## Post-close findings
+
+**RUM `service_name` was `unknown_service` for *real* beacons too — surfaced by F012 Phase 2 (2026-05-31).** The T101 synthetic-beacon check (key/CORS/trace-drop/landing) passed and F004 closed believing real Mneme telemetry would land under `{service_name="mneme-frontend"}`. When F012 wired the actual Faro Web SDK and sent `app.name = 'mneme-frontend'`, beacons still landed as `service_name="unknown_service"`.
+
+- **Root cause — Case B (body-vs-label, not relabel).** The Faro receiver flattens *every* beacon attribute into the log **body** (logfmt), `app_name` included. It does **not** emit `app_name` as a stream label, so there was nothing for a relabel rule to act on, and Loki's service-name auto-detection (which looks for a `service_name`/`app` label) found none → defaulted to `unknown_service`. The stream carried only two labels (`detected_level`, `service_name=unknown_service`).
+- **Why T101 couldn't catch it.** The synthetic beacon carries **no `app` block at all**, so its `unknown_service` looked *expected* — and the `logs-setup.md` note rationalized it as such. That benign-looking note **masked** the real-beacon bug: the synthetic path and the real path both landed as `unknown_service`, for different reasons, and the test asserted on a payload-body marker rather than on `service_name`. A synthetic beacon that *included* an `app` block would have caught it.
+- **Fix — one-field promotion in a `loki.process` stage.** Added `loki.process "faro"` between `faro.receiver` and `loki.write`: `stage.logfmt { mapping = { "app_name" = "" } }` extracts `app_name` from the body, `stage.labels { values = { "service_name" = "app_name" } }` promotes it to the label; the receiver's `output { logs }` now points at `loki.process.faro.receiver`. Verified against the Alloy v1.5.1 reference (`mapping`/`values` are string maps; the component exports `.receiver`).
+- **Cardinality discipline held deliberately.** Promoted **exactly one** field. The body carries dozens of high-cardinality fields (`session_id`, `context_id`, every `value_*`/`browser_*`/`event_data_*`); promoting any to a label would explode stream count — precisely what `loki-config.yaml`'s "keep label cardinality sane" comment guards against. Everything but `app_name` stays in the body for query-time `| logfmt`. The stage is on the **Faro path only**; the container-logs pipeline already labels `service_name` from the Docker container name (why `mneme-api-1` etc. always worked).
+- **Docs reconciled.** `logs-setup.md`'s synthetic-beacon note rewritten (the landing-under-name behavior is the promotion stage's doing, not automatic); Mneme's `docs/observability.md` F004 contract flipped from "`app.name` required, else `unknown_service`" to "`app.name=X` lands queryable under `{service_name=X}` *because F004's receiver pipeline promotes it*."
+- **Lesson.** A synthetic verification fixture must exercise the **same shape** as the real producer. T101 verified the transport (key/CORS/trace-drop/landing) but not the *labeling*, because its payload omitted the one attribute (`app.name`) the labeling depends on. "Verified live end-to-end" was true for the edge and false for the label — the gap was a fixture that didn't match the real beacon's body.
+
+---
+
 ## Meta-observation: methodology compounding
 
 F004 was the **largest scope expansion of the four features** — metrics-only → a whole new observability category (logs + RUM), requiring a constitutional amendment (v1.3), a second compose stack, a new upstream pair (Loki + Alloy), a browser-facing receiver, and a cross-repo contract. By raw surface area it dwarfs F001–F003.

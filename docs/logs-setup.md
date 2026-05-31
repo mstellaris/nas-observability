@@ -105,12 +105,23 @@ curl -fsS http://localhost:3110/-/ready         # -> OK
 ports in use, bind-mount ownership). Loki disk usage is the standalone `du`
 check below (§Loki disk-watch).
 
-> **Synthetic beacons land as `service_name="unknown_service"`.** A hand-built
-> verification beacon (the T101 key/CORS/trace-drop/landing check) carries no
-> Faro `app` meta block, so Loki labels it `unknown_service` — expected, not a
-> bug. Real Mneme frontend telemetry carries `app: { name: 'mneme-frontend' }`,
-> so it lands under that name. Query synthetic test signals by their payload
-> body (e.g. a `faro-verify-*` marker), not by `service_name`.
+> **RUM `service_name` is set by a promotion stage, not automatically.** The
+> Faro receiver flattens every beacon attribute into the log *body* (logfmt) —
+> including Mneme's `app.name`. It does **not** emit `app_name` as a stream
+> label, so Loki's service-name auto-detection finds nothing and the beacon
+> would land under `service_name="unknown_service"`. The `loki.process "faro"`
+> stage in `config/alloy/config.alloy` fixes this: it parses the body and
+> promotes the single field `app_name → service_name`. So real Mneme telemetry
+> (`app: { name: 'mneme-frontend' }`) lands queryable under
+> `{service_name="mneme-frontend"}` **because of that stage** — without it,
+> even real beacons were `unknown_service` (the F012-Phase-2 finding; the T101
+> synthetic beacon couldn't catch it because it carries no `app` block at all,
+> so its `unknown_service` looked expected and masked the real-beacon bug).
+> A synthetic beacon with no `app` block still lands as `unknown_service` —
+> query test signals by a payload-body marker (e.g. `faro-verify-*`), not by
+> `service_name`. Only `app_name` is promoted: every other body field
+> (`session_id`, `browser_*`, `value_*`, …) stays in the body deliberately to
+> keep stream cardinality bounded.
 
 ---
 

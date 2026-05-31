@@ -99,13 +99,46 @@ faro.receiver "mneme" {
   }
 
   output {
-    logs = [loki.write.default.receiver]
+    // Logs flow through loki.process.faro (below), NOT straight to the sink:
+    // the receiver flattens every beacon attribute into the log BODY (logfmt),
+    // so Mneme's app_name arrives as a body field, not a stream label. Without
+    // promotion, Loki's service-name auto-detection finds nothing and the
+    // stream lands under {service_name="unknown_service"}. The process stage
+    // promotes the one field app_name → service_name. (F012-Phase-2 finding.)
+    logs = [loki.process.faro.receiver]
     // Traces UNWIRED — APM/distributed tracing (Tempo) is deferred by
     // Constitution v1.3. The Faro Web SDK may emit spans; they are dropped
     // here. A future tracing feature wires this one line to a trace backend
     // (the documented clean seam, Spec FR-49 / Scenario 6).
     traces = []
   }
+}
+
+// Promote Mneme's app_name (a logfmt field in the Faro beacon body) to the
+// service_name stream label, so RUM beacons land under {service_name=X}
+// instead of {service_name="unknown_service"}. This is a body-vs-label fix:
+// the Faro receiver does NOT emit app_name as a label, so a relabel rule has
+// nothing to act on — extraction from the body is the only lever.
+//
+// CARDINALITY DISCIPLINE (deliberate, matches loki-config.yaml's warning):
+// promote EXACTLY one field. The beacon body carries dozens of high-cardinality
+// fields (session_id, context_id, every value_*/browser_*/event_data_*);
+// promoting any of those to a label would explode stream count — the precise
+// failure loki-config.yaml's "keep label cardinality sane" comment guards
+// against. One narrow promotion; everything else stays in the body for
+// query-time parsing (| logfmt). This stage is on the Faro path ONLY — the
+// container-logs pipeline already labels service_name from the Docker name.
+loki.process "faro" {
+  // Parse the logfmt body and pull app_name into the extracted map
+  // (empty value = use the key name as the logfmt field name).
+  stage.logfmt {
+    mapping = { "app_name" = "" }
+  }
+  // Promote that extracted app_name to the service_name stream label.
+  stage.labels {
+    values = { "service_name" = "app_name" }
+  }
+  forward_to = [loki.write.default.receiver]
 }
 
 // ----------------------------------------------------------------------------
