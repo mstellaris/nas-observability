@@ -17,7 +17,7 @@
 set -uo pipefail
 
 readonly BASE=/volume1/docker/observability
-readonly SERVICES=(prometheus grafana cadvisor node-exporter snmp-exporter postgres-exporter)
+readonly SERVICES=(prometheus grafana cadvisor node-exporter snmp-exporter postgres-exporter loki alloy)
 
 # Declared ports from docs/ports.md, as port:service pairs (parallel-array
 # form for bash 3.2 compat — DSM has bash 4 but macOS dev shells may not).
@@ -30,6 +30,10 @@ readonly PORTS_LIST=(
   "9100:node-exporter"
   "9116:snmp-exporter"
   "9187:postgres-exporter"
+  "3100:loki"
+  "3101:loki"
+  "3110:alloy"
+  "3111:alloy"
 )
 
 # Bind-mount paths expected under $BASE, with mode/ownership hints. The
@@ -42,6 +46,10 @@ readonly BIND_PATHS=(
   "grafana/data"
   "snmp_exporter/snmp.yml|bootstrap"
   "snmp_exporter/.community|bootstrap"
+  "loki/data"
+  "loki/loki-config.yaml"
+  "alloy/data"
+  "alloy/config.alloy"
 )
 
 # -----------------------------------------------------------------------

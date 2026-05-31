@@ -26,17 +26,16 @@ Adding a new service picks a port from within an existing range — never invent
 | 9100   | node_exporter  | 9100–9199       | F001    |
 | 9116   | snmp_exporter  | 9100–9199       | F002    |
 | 9187   | postgres_exporter | 9100–9199    | F003 (Mneme; shared with any future feature reusing postgres_exporter on a different DB — F004+ adjusts this row if needed) |
+| 3100   | Loki (HTTP)       | 3100–3199    | F004 (logs/RUM) |
+| 3101   | Loki (gRPC)       | 3100–3199    | F004 (logs/RUM) — remapped off Loki's upstream default 9095, which sits in the Prometheus-adjacent 9090–9099 band |
+| 3110   | Alloy UI          | 3100–3199    | F004 (logs/RUM) — remapped off Alloy's upstream default 12345 via `--server.http.listen-addr` |
+| 3111   | Alloy Faro receiver | 3100–3199  | F004 (logs/RUM) — binds host interfaces (0.0.0.0) over HTTP, reachable on LAN + Tailscale; **no reverse proxy**, gated by the API key (D5/T086) |
 
 ## Reserved for later features
 
 | Port   | Service                  | Range     | Feature    |
 |--------|--------------------------|-----------|------------|
 | 9093   | Alertmanager             | 9090–9099 | Alerting (TBD) |
-| 3100   | Loki (HTTP)              | 3100–3199 | F004 (logs/RUM) |
-| 3110   | Alloy UI                 | 3100–3199 | F004 (logs/RUM) — remapped off upstream default 12345 |
-| 3111   | Alloy Faro receiver      | 3100–3199 | F004 (logs/RUM) — binds localhost behind the reverse proxy; remapped off upstream default 12345 |
-
-Loki anchors the `3100–3199` band at its upstream default (3100); Alloy's UI and Faro receiver are remapped into the band (their upstream defaults — 12345 — fall outside every range and are arbitrary behind the proxy). These port numbers are pencilled here and finalized in F004's spec; when the feature lands they move into "Current assignments".
 
 When these features land, they update the table above (moving the reservation into "Current assignments") rather than adding a new entry.
 

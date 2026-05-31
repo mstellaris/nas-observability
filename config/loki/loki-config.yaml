@@ -1,0 +1,78 @@
+# Grafana Loki config — single-binary mode, filesystem store, 7-day retention.
+# Feature 004 (logs/RUM subsystem). Pinned image grafana/loki:3.3.2.
+#
+# Deployed on the DS224+ via docker-compose.logs.yml. This file is curl'd
+# to /volume1/docker/observability/loki/loki-config.yaml by
+# scripts/init-nas-paths.sh (NOT mounted relative — Portainer's Repository
+# deploy clones into its own workspace, so relative bind mounts fail; same
+# reason prometheus.yml is fetched to a host path).
+#
+# Constitutional notes:
+#   - Single-binary + filesystem: simplest fit for a single-operator homelab
+#     (Constitution v1.3 §logs/RUM, Spec D3). No external object store.
+#   - 7-day retention (Spec D4) — shorter than the metrics subsystem's 30d
+#     because logs accrue volume far faster. retention_enabled below is the
+#     line that makes deletion actually fire; Loki's default leaves it OFF.
+#   - Loki's filesystem store has NO native total-bytes eviction (unlike
+#     Prometheus' retention.size). Disk protection = this 7-day time
+#     retention (automatic) + operator disk-watch (docs/logs-setup.md). NOT
+#     an automatic size cap.
+
+auth_enabled: false   # single-tenant; host-firewalled, no multi-tenancy (Spec Out-of-Scope)
+
+server:
+  http_listen_port: 3100
+  # Remapped off Loki's upstream gRPC default 9095, which sits in the
+  # Prometheus-adjacent 9090–9099 band and would collide there under host
+  # networking. 3101 keeps the whole logs/RUM subsystem inside 3100–3199
+  # (Constitution v1.3 port range / docs/ports.md).
+  grpc_listen_port: 3101
+  log_level: info
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki                 # → /volume1/docker/observability/loki/data bind mount
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    # IMMUTABLE once data exists: this `from:` date stamps which day v13/TSDB
+    # took effect. Do NOT "tidy" or bump it later — Loki uses it to route
+    # reads to the right schema period; changing it after ingestion orphans
+    # existing chunks/index. A schema change means ADDING a new config entry
+    # with a future `from:` date, never editing this one.
+    - from: 2026-05-31               # schema v13 effective from first deploy
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+storage_config:
+  tsdb_shipper:
+    active_index_directory: /loki/tsdb-index
+    cache_location: /loki/tsdb-cache
+
+limits_config:
+  retention_period: 168h             # 7 days (Spec D4)
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+  # Keep label cardinality sane: structured metadata + JSON fields are
+  # parsed at query time (| json), not promoted to stream labels. The
+  # canonical labels are set in Alloy (container, compose_service, job).
+  volume_enabled: true               # enables the Logs volume API (Explore "Logs volume" panel)
+
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true            # REQUIRED for retention_period to delete (default is OFF)
+  delete_request_store: filesystem
+  compaction_interval: 10m
+  retention_delete_delay: 2h

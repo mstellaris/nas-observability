@@ -1,0 +1,119 @@
+// Grafana Alloy config — Feature 004 (logs/RUM subsystem).
+// Pinned image grafana/alloy:v1.5.1.
+//
+// Three pipelines:
+//   1. Backend logs: every container's stdout, via the Docker API.
+//   2. Host system logs: /var/log/*.log (best-effort).
+//   3. Frontend RUM: the Faro receiver (browser telemetry).
+// All forward to Loki on localhost:3100.
+//
+// Deployed on the DS224+ via docker-compose.logs.yml. This file is curl'd
+// to /volume1/docker/observability/alloy/config.alloy by
+// scripts/init-nas-paths.sh (host-path mount; Portainer Repository deploys
+// can't resolve relative mounts — same reason prometheus.yml/loki-config
+// are fetched).
+//
+// Alloy's own UI/HTTP server (default :12345) is remapped to :3110 via the
+// --server.http.listen-addr flag in docker-compose.logs.yml, NOT here — it's
+// a startup flag, not config. That keeps it inside the 3100–3199 band.
+
+// ----------------------------------------------------------------------------
+// 1. Backend logs — container stdout via the Docker API (Spec FR-48, D8)
+// ----------------------------------------------------------------------------
+// API-based collection: loki.source.docker streams logs over the Docker
+// socket (GET /containers/<id>/logs). It does NOT read the on-disk json-file
+// log bodies, so NO /volume1/@docker/containers mount is needed (Plan §D8).
+// The socket is root:root 660 on DSM; the container reaches it via
+// group_add: ["0"] in compose while staying uid 1026 for /volume1 writes.
+
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+// This block exists ONLY to export its `.rules` (consumed by
+// loki.source.docker's relabel_rules below) — the documented Alloy idiom.
+// targets = [] because its own `.output` is never used; loki.source.docker
+// takes the RAW discovery.docker targets and applies these rules itself.
+discovery.relabel "containers" {
+  targets = []
+
+  // Canonical log label schema (resolves Spec Scenario 2). The container
+  // name arrives as "/name"; strip the leading slash.
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "compose_service"
+  }
+}
+
+// targets = RAW discovery.docker output + relabel_rules = the rules above.
+// This is the documented loki.source.docker pattern (the source applies the
+// rules to derive stream labels from __meta_docker_* meta-labels). Verified
+// against the Alloy v1.5.1 reference. The `container` label's presence is
+// confirmed empirically at deploy — see tasks.md T096.
+loki.source.docker "containers" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.docker.containers.targets
+  relabel_rules = discovery.relabel.containers.rules
+  labels        = { job = "container-logs" }
+  forward_to    = [loki.write.default.receiver]
+}
+
+// ----------------------------------------------------------------------------
+// 2. Host system logs (best-effort)
+// ----------------------------------------------------------------------------
+local.file_match "hostlogs" {
+  path_targets = [{ __path__ = "/var/log/*.log", job = "host-logs" }]
+}
+
+loki.source.file "hostlogs" {
+  targets    = local.file_match.hostlogs.targets
+  forward_to = [loki.write.default.receiver]
+}
+
+// ----------------------------------------------------------------------------
+// 3. Frontend RUM — Faro receiver (Spec FR-49/FR-51, D5/T086)
+// ----------------------------------------------------------------------------
+// SECURITY POSTURE (deliberate — D5/T086): the receiver binds the HOST
+// interfaces (0.0.0.0), NOT localhost, because there is no reverse proxy in
+// front — browsers on the LAN and the tailnet POST to it directly over HTTP.
+// The API key is therefore the SOLE access gate (not a second layer behind a
+// proxy). Acceptable for a single-user trusted LAN+tailnet. Telemetry is
+// plain HTTP: WireGuard encrypts the Tailscale path; the LAN path is
+// plaintext (own LAN, own logs, own NAS). No TLS anywhere. See
+// docs/logs-setup.md §Receiver posture.
+faro.receiver "mneme" {
+  server {
+    listen_address = "0.0.0.0"
+    listen_port    = 3111
+    // Two origins, explicit, never "*": the LAN and Tailscale paths the
+    // operator actually loads Mneme from. Comma-separated env var, split here
+    // so the values stay out of committed config (sys.env → no envsubst,
+    // sidesteps the DSM no-envsubst constraint).
+    cors_allowed_origins = split(sys.env("FARO_ALLOWED_ORIGINS"), ",")
+    api_key              = sys.env("FARO_API_KEY")
+  }
+
+  output {
+    logs = [loki.write.default.receiver]
+    // Traces UNWIRED — APM/distributed tracing (Tempo) is deferred by
+    // Constitution v1.3. The Faro Web SDK may emit spans; they are dropped
+    // here. A future tracing feature wires this one line to a trace backend
+    // (the documented clean seam, Spec FR-49 / Scenario 6).
+    traces = []
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Sink — write to Loki (graceful retry/backoff + WAL by default, so Alloy
+// does NOT crash-loop if Loki is down — Spec FR-50)
+// ----------------------------------------------------------------------------
+loki.write "default" {
+  endpoint {
+    url = "http://localhost:3100/loki/api/v1/push"
+  }
+}

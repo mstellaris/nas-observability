@@ -37,6 +37,11 @@ declare -a BIND_PATHS=(
   "prometheus/data"
   "grafana/data"
   "snmp_exporter"
+  # Feature 004 logs/RUM subsystem (docker-compose.logs.yml). Loki writes
+  # chunks/index/compactor state here; Alloy writes its WAL/positions. Both
+  # run as 1026:100, so the same chown applies.
+  "loki/data"
+  "alloy/data"
 )
 
 for sub in "${BIND_PATHS[@]}"; do
@@ -62,6 +67,28 @@ synoacltool -del "${PROM_CONFIG}" &>/dev/null || true
 chown "${OWNER}" "${PROM_CONFIG}"
 chmod 644 "${PROM_CONFIG}"
 echo "  ${PROM_CONFIG}  (owner ${OWNER}, mode 644)"
+
+# Feature 004: fetch the Loki and Alloy configs into host paths the logs/RUM
+# stack bind-mounts (same host-path rationale as prometheus.yml — Portainer
+# Repository deploys can't resolve relative mounts). These have no secrets in
+# them — the Faro API key and CORS origins are injected at runtime via env
+# (sys.env in config.alloy), not baked into the file.
+# dest-subpath|repo-source pairs (parallel-array form, not an associative
+# array, to match the repo's bash-3.2-safe idiom — see diagnose.sh).
+declare -a LOGS_CONFIGS=(
+  "loki/loki-config.yaml|config/loki/loki-config.yaml"
+  "alloy/config.alloy|config/alloy/config.alloy"
+)
+for entry in "${LOGS_CONFIGS[@]}"; do
+  dest_sub="${entry%%|*}"
+  src="${entry##*|}"
+  dest="${BASE}/${dest_sub}"
+  curl -fsSL -o "${dest}" "${REPO_RAW}/${src}"
+  synoacltool -del "${dest}" &>/dev/null || true
+  chown "${OWNER}" "${dest}"
+  chmod 644 "${dest}"
+  echo "  ${dest}  (owner ${OWNER}, mode 644)"
+done
 
 # SNMP exporter: verify .community exists (one-time operator action per
 # docs/snmp-setup.md §Step 3), then render snmp.yml.template via sed
@@ -111,6 +138,9 @@ chmod 644 "${SNMP_CONFIG}"
 echo "  ${SNMP_CONFIG}  (owner ${OWNER}, mode 644)"
 
 echo
-echo "NAS paths initialized under ${BASE}. Populate GRAFANA_ADMIN_USER and"
-echo "GRAFANA_ADMIN_PASSWORD in Portainer's stack environment variables, then"
-echo "deploy the stack from docker-compose.yml."
+echo "NAS paths initialized under ${BASE}."
+echo "  Metrics stack (docker-compose.yml): set GRAFANA_ADMIN_USER and"
+echo "    GRAFANA_ADMIN_PASSWORD in its Portainer stack environment, then deploy."
+echo "  Logs/RUM stack (docker-compose.logs.yml): set FARO_API_KEY and"
+echo "    FARO_ALLOWED_ORIGINS in its Portainer stack environment, then deploy."
+echo "    See docs/logs-setup.md for the key generation + CORS origins."

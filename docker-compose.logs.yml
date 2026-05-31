@@ -1,0 +1,73 @@
+# nas-observability logs/RUM subsystem — Docker Compose v2 schema (no version: key).
+# Deployed as a SEPARATE Portainer stack from docker-compose.yml (metrics),
+# per Constitution v1.3's two-subsystem split (Spec D2). The two subsystems
+# restart independently; Grafana (in the metrics stack) visualizes both via a
+# baked Loki datasource.
+#
+# Constitutional constraints:
+#   - All services run network_mode: host (DSM bridge limitations — Principle III).
+#   - Pinned image tags only; no :latest (Principle I).
+#   - Per-service mem_limit sums to 450M, within the 500M logs/RUM cap
+#     (Constitution v1.3 Principle IV, separate from the metrics 600M): 200+250.
+#   - Both services run as DSM admin UID 1026:100 — they write state to /volume1
+#     bind mounts (Loki: chunks/index; Alloy: WAL), and DSM 7.3 blocks low-UID
+#     writes there (v1.1 §DSM UID restriction).
+
+services:
+  loki:
+    image: grafana/loki:3.3.2
+    container_name: loki
+    network_mode: host
+    restart: unless-stopped
+    mem_limit: 200M
+    # DSM admin UID so the bind-mounted /loki state dir is writable (v1.1).
+    user: "1026:100"
+    command:
+      - -config.file=/etc/loki/loki-config.yaml
+    volumes:
+      # Config curl'd to a host path by scripts/init-nas-paths.sh (Portainer
+      # Repository deploys can't resolve relative mounts).
+      - /volume1/docker/observability/loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
+      - /volume1/docker/observability/loki/data:/loki
+    # No Docker healthcheck: the Loki image is minimal and we do not assume
+    # wget/curl is present (same caution as postgres-exporter). Operational
+    # health is Loki's HTTP /ready endpoint (http://localhost:3100/ready),
+    # probed by scripts/diagnose.sh.
+
+  alloy:
+    image: grafana/alloy:v1.5.1
+    container_name: alloy
+    network_mode: host
+    restart: unless-stopped
+    mem_limit: 250M
+    # DSM admin UID for /volume1 writes (WAL/positions under /var/lib/alloy).
+    user: "1026:100"
+    # The Docker socket is root:root mode 660 on DSM (verified T089). Add the
+    # root group (GID 0) so Alloy can READ the socket for loki.source.docker.
+    # The uid stays 1026, and DSM's /volume1 write restriction keys on uid
+    # (not supplementary groups), so /volume1 writes still succeed (Plan §D8).
+    group_add:
+      - "0"
+    environment:
+      # Read by sys.env() in config.alloy. Set in Portainer's stack
+      # environment for THIS (logs) stack. FARO_API_KEY gates the receiver;
+      # FARO_ALLOWED_ORIGINS is the comma-separated CORS allow-list (the two
+      # paths the operator loads Mneme from). See .env.example + docs/logs-setup.md.
+      - FARO_API_KEY=${FARO_API_KEY}
+      - FARO_ALLOWED_ORIGINS=${FARO_ALLOWED_ORIGINS}
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --storage.path=/var/lib/alloy/data
+      # Remap Alloy's own UI/HTTP server off its default :12345 to :3110 so it
+      # stays inside the 3100–3199 logs/RUM band (Constitution v1.3 / ports.md).
+      - --server.http.listen-addr=0.0.0.0:3110
+    volumes:
+      - /volume1/docker/observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /volume1/docker/observability/alloy/data:/var/lib/alloy/data
+      # Docker socket, read-only — API-based loki.source.docker streams
+      # container logs over it. No container-log-path mount (API method, not
+      # file-tailing — Plan §D8).
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    # No Docker healthcheck (minimal image, same caution as Loki). Health is
+    # Alloy's HTTP /-/ready on :3110, probed by scripts/diagnose.sh.

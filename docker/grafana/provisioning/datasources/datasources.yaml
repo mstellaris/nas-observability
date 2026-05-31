@@ -8,3 +8,16 @@ datasources:
     url: http://localhost:9090
     isDefault: true
     editable: false
+
+  # Loki (Feature 004 logs/RUM subsystem). Explicit uid per v1.1 datasource-UID
+  # determinism. Same host (network_mode: host), so localhost:3100. Not the
+  # default — Prometheus stays default; this is selected explicitly in Explore
+  # and by any logs/RUM panels.
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://localhost:3100
+    editable: false
+    jsonData:
+      maxLines: 1000
