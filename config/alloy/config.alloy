@@ -30,8 +30,12 @@ discovery.docker "containers" {
   host = "unix:///var/run/docker.sock"
 }
 
+// This block exists ONLY to export its `.rules` (consumed by
+// loki.source.docker's relabel_rules below) — the documented Alloy idiom.
+// targets = [] because its own `.output` is never used; loki.source.docker
+// takes the RAW discovery.docker targets and applies these rules itself.
 discovery.relabel "containers" {
-  targets = discovery.docker.containers.targets
+  targets = []
 
   // Canonical log label schema (resolves Spec Scenario 2). The container
   // name arrives as "/name"; strip the leading slash.
@@ -46,6 +50,11 @@ discovery.relabel "containers" {
   }
 }
 
+// targets = RAW discovery.docker output + relabel_rules = the rules above.
+// This is the documented loki.source.docker pattern (the source applies the
+// rules to derive stream labels from __meta_docker_* meta-labels). Verified
+// against the Alloy v1.5.1 reference. The `container` label's presence is
+// confirmed empirically at deploy — see tasks.md T096.
 loki.source.docker "containers" {
   host          = "unix:///var/run/docker.sock"
   targets       = discovery.docker.containers.targets

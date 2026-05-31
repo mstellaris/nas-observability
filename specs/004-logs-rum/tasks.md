@@ -165,6 +165,7 @@ Honors the Portainer absolute-path constraint (memory `project_portainer_bind_mo
 **Given** Loki + Alloy are running with the Loki datasource not yet added (use Loki's API directly or add the datasource first — see Phase 4 ordering note)
 **When** logs are queried in Grafana → Explore → Loki (after T097/T098) or via `logcli`/curl
 **Then** Mneme's pino JSON log lines are returned for the Mneme API container, queryable by `{container="<mneme-api-container>"}` (label key `container` per T094; query string illustrative — acceptance is "queryable by container," not a literal label match — Spec Scenario 2)
+**And** **the `container` label is actually PRESENT on streams** — verified explicitly by querying `{container="loki"}` and `{container="alloy"}` (the two new containers, whose names are known) and confirming each returns log lines. This is the relabel-wiring check: if these return nothing while logs clearly exist, the `discovery.relabel` → `loki.source.docker` `relabel_rules` wiring failed to apply the label, and the fix is to switch `loki.source.docker` to `targets = discovery.relabel.containers.output` + drop `relabel_rules`. Catch it here at deploy, not later.
 **And** an all-streams query returns log streams for every running container including the observability stack itself
 **And** JSON fields are queryable via `| json` parsing
 

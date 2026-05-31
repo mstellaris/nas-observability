@@ -43,6 +43,11 @@ common:
 
 schema_config:
   configs:
+    # IMMUTABLE once data exists: this `from:` date stamps which day v13/TSDB
+    # took effect. Do NOT "tidy" or bump it later — Loki uses it to route
+    # reads to the right schema period; changing it after ingestion orphans
+    # existing chunks/index. A schema change means ADDING a new config entry
+    # with a future `from:` date, never editing this one.
     - from: 2026-05-31               # schema v13 effective from first deploy
       store: tsdb
       object_store: filesystem

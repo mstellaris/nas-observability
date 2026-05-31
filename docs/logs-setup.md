@@ -77,6 +77,13 @@ and the Tailscale name (Tailscale on). If you add a third access path, add its
 origin here. Alloy reads both vars via `sys.env` at runtime — they are never
 baked into `config.alloy`.
 
+> ⚠️ **No space after the comma.** Set it exactly as
+> `http://192.168.0.8:8080,http://ds224plus.tailda1ab8.ts.net:8080` — Alloy
+> does `split(..., ",")`, so a space after the comma would leave a leading
+> space on the second origin (`" http://ds224plus…"`). CORS origin matching is
+> exact, so that space would **silently block** every Tailscale-origin beacon
+> while LAN beacons keep working. No trailing comma either.
+
 ---
 
 ## Step 4 — Deploy + verify
