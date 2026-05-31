@@ -94,7 +94,9 @@ curl -fsS http://localhost:3110/-/ready         # -> OK
 #   Grafana -> Explore -> Loki -> {container="<mneme-api-container>"}
 ```
 
-`scripts/diagnose.sh` also covers both new services + Loki disk usage.
+`scripts/diagnose.sh` covers both new services (container state, declared
+ports in use, bind-mount ownership). Loki disk usage is the standalone `du`
+check below (§Loki disk-watch).
 
 ---
 

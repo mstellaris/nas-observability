@@ -11,12 +11,13 @@
 
 22 tasks across 11 phases (Phase 0 + Phases 1–10), numbered **T086–T107** (continuing F003's T057–T085 sequence). Tasks marked `[P]` can run in parallel with other `[P]` tasks in the same phase.
 
-**Phase 0 is the most consequential task group.** Three of its four verifications *branch the topology of everything downstream* — they are not formalities:
-- **T086 (TLS edge / domain) — RESOLVED 2026-05-31: HTTP, no TLS, no proxy.** Mneme is HTTP, so beacons need no TLS; host networking gives both LAN + Tailscale routes free; receiver binds host interfaces with two-origin CORS + API key as sole gate. The TLS/domain/proxy branch is closed; only T087 remains live.
-- **T087 (Alloy `api_key`)** decides 2-container vs. 3-container topology (native enforcement vs. a Caddy key/CORS proxy) — and the 450M budget split.
-- **T089 (socket `stat`)** decides the D8 `group_add` GID vs. the socket-proxy fallback.
+**Phase 0 (the most consequential task group) is COMPLETE — all four gates settled 2026-05-31, clean 2-container topology on every axis:**
+- **T086** → HTTP, no TLS, no proxy (Mneme is HTTP; host networking gives both LAN + Tailscale routes free); receiver binds host interfaces, two-origin CORS, API key as sole gate.
+- **T087** → `grafana/alloy:v1.5.1` supports native `api_key` + `cors_allowed_origins` → **2 containers, no Caddy**.
+- **T088** → pins `grafana/loki:3.3.2` + `grafana/alloy:v1.5.1` (amd64-confirmed).
+- **T089** → socket `root:root 660` → `group_add: ["0"]`, uid stays 1026.
 
-Run Phase 0 first and let its outcomes settle the config shape before writing any service config (Phases 2–5).
+Config (Phases 2–5) is authored against this settled shape. One new detail surfaced: Alloy's default UI port 12345 is remapped to 3110 via the `--server.http.listen-addr` flag in compose (the Faro receiver takes 3111).
 
 **Phase 7 (retention-deletion) is deliberately separate from Phase 10 (24h observation).** A 24h window cannot fire a 7-day compactor; Phase 7 proves time-retention deletion via a short-retention test, and installs the operator disk-watch (Loki has no automatic byte-cap — size protection is time-retention + vigilance, stated plainly).
 
@@ -46,41 +47,23 @@ All four are verification-only and can run in parallel `[P]`, but their *outcome
 - Encryption posture: HTTP plaintext on LAN; WireGuard-encrypted on the Tailscale path. No end-to-end TLS, accepted.
 - Only residual branch is **T087** (native Alloy key/CORS vs. a tiny **HTTP** Caddy — no TLS either way).
 
-### T087 — Verify Alloy `faro.receiver` capability (api_key + CORS) `[P]`
+### T087 — Alloy `faro.receiver` capability (api_key + CORS) `[RESOLVED 2026-05-31]`
 
-**Files:** (none; verification-only)
+**Files:** (none; resolution recorded in PR)
 
-**Acceptance:**
+**Resolution:** **NATIVE key + CORS confirmed.** `grafana/alloy:v1.5.1` run-validated cleanly with `api_key` and `cors_allowed_origins` in the `faro.receiver` `server` block — the receiver started and bound with no unknown-attribute error. → **2-container topology** (Loki + Alloy), no Caddy. Budget Loki 200M + Alloy 250M = 450M ≤ 500M. Alloy enforces key + two-origin CORS on host interfaces; `config.alloy` (T094/T099) authored against this.
 
-**Given** Plan §D5 prefers native Alloy enforcement of `api_key` + `cors_allowed_origins`
-**When** the operator checks the pinned Alloy version's `faro.receiver` `server` block reference (and/or a quick local smoke of the config)
-**Then** it is confirmed whether `api_key` AND `cors_allowed_origins` (plural list) are both supported
-**And** if **yes** → 2-container topology (Loki + Alloy), budget Loki 200 / Alloy 250 = 450M; Alloy enforces key + two-origin CORS on host interfaces
-**And** if **no** (api_key absent) → 3-container topology: add a minimal **HTTP** Caddy (key + two-origin CORS, **no TLS**) on host interfaces, proxying to Alloy on `127.0.0.1:3111`; rebalance Loki 200 / Alloy 210 / Caddy 40 = 450M; Caddy gets a `docs/ports.md` row (T093/T100)
-**And** the outcome is recorded before any `config.alloy` is written (T094/T099)
+### T088 — Pin Loki + Alloy image versions `[RESOLVED 2026-05-31]`
 
-### T088 — Pin Loki + Alloy image versions `[P]`
+**Files:** (none; pins feed T093/T095 compose)
 
-**Files:** (none; verification feeds T093/T095 compose)
+**Resolution:** **`grafana/loki:3.3.2` + `grafana/alloy:v1.5.1`** — both have linux/amd64 manifests and both pulled successfully on the NAS. Pinned verbatim in `docker-compose.logs.yml` (no `:latest` — Principle I).
 
-**Acceptance:**
+### T089 — Docker socket / D8 mechanism `[RESOLVED 2026-05-31]`
 
-**Given** F001's lesson that upstream tags occasionally lie
-**When** the operator runs `docker manifest inspect grafana/loki:<tag>` and `docker manifest inspect grafana/alloy:<tag>` for the target latest-stable Loki 3.x / Alloy v1.x
-**Then** the exact existing tags are confirmed (incl. linux/amd64 platform present) and pinned
-**And** the confirmed pins are used verbatim in `docker-compose.logs.yml` (no `:latest`, no floating tags — Principle I)
+**Files:** (none; feeds T095 compose)
 
-### T089 — Stat the Docker socket (D8 group_add GID) `[P]`
-
-**Files:** (none; verification feeds T095 compose)
-
-**Acceptance:**
-
-**Given** Alloy must read the root-owned Docker socket while running as `1026:100` (Plan §D8)
-**When** the operator runs `stat -c '%U:%G %a' /var/run/docker.sock` on the DS224+
-**Then** the owner:group:mode is recorded (expected `root:root 660`)
-**And** the GID to `group_add` is determined (e.g. `"0"` for a `root:root 660` socket)
-**And** if the bare `group_add` is judged too broad or insufficient, the socket-proxy sidecar fallback (Plan §D8) is selected instead (Alloy → `tcp://localhost:<port>`, +~20M, rebalance Alloy 230 / proxy 20)
+**Resolution:** socket is **`root:root 660`** → **`group_add: ["0"]`** on the Alloy service, `user: "1026:100"` unchanged (the DSM `/volume1` write restriction keys on uid, not supplementary groups, so writes still succeed). Docker data-root confirmed `/volume1/@docker`. D8 **primary** mechanism; no socket-proxy fallback needed. Collection is API-based (socket only — no container-log-path mount).
 
 ---
 

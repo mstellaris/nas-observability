@@ -19,8 +19,8 @@ The component count is small (two services), but the substantive work is in thre
 This plan **resolves Spec D5 (proxy placement) and D8 (socket access)** to concrete topologies, names the image targets, drafts the Loki and Alloy configs, and defines the synthetic-beacon verification and the contract block — leaving only impl-time verifications (exact tag pins, DSM socket ownership, Alloy `faro.receiver` capability) as gated pre-flight tasks, in the same spirit as F003's T075 metric-name verification.
 
 **Runtime & images:**
-- `grafana/loki` — target latest-stable **3.x**; exact patch pinned and `docker manifest inspect`-verified at impl (Pre-flight, Phase 0). Upstream, unmodified, config bind-mounted at runtime (Principle I).
-- `grafana/alloy` — target latest-stable **v1.x**; same manifest-verification at impl. Upstream, unmodified, config bind-mounted.
+- `grafana/loki:3.3.2` — pinned, amd64 manifest confirmed (T088). Upstream, unmodified, config bind-mounted at runtime (Principle I).
+- `grafana/alloy:v1.5.1` — pinned, amd64 manifest confirmed (T088); native `faro.receiver` key+CORS confirmed (T087). Upstream, unmodified, config bind-mounted.
 - Custom Grafana image rebuilds with a Loki datasource added; no other metrics-side change.
 - All F001–F003 images/versions unchanged.
 
@@ -161,7 +161,7 @@ Alloy must simultaneously **write** WAL/positions to `/volume1` (→ run as `102
 
 ## Service Configuration: Loki
 
-**Image:** `grafana/loki:<3.x pinned at impl>` · **Ports:** 3100 (HTTP), 3101 (gRPC) · **mem_limit:** 200M · **user:** `1026:100` · **restart:** `unless-stopped`
+**Image:** `grafana/loki:3.3.2` · **Ports:** 3100 (HTTP), 3101 (gRPC) · **mem_limit:** 200M · **user:** `1026:100` · **restart:** `unless-stopped`
 
 **`config/loki/loki-config.yaml` (skeleton — exact values finalized at impl):**
 
@@ -222,7 +222,7 @@ compactor:
 
 ## Service Configuration: Alloy
 
-**Image:** `grafana/alloy:<v1.x pinned at impl>` · **Ports:** 3110 (UI), 3111 (faro.receiver, **host interfaces** — D5/T086) · **mem_limit:** 250M · **user:** `1026:100` + `group_add` (§D8) · **restart:** `unless-stopped`
+**Image:** `grafana/alloy:v1.5.1` · **Ports:** 3110 (UI — remapped off the default 12345 via `--server.http.listen-addr=0.0.0.0:3110` in compose, since it's a startup flag not config), 3111 (faro.receiver, **host interfaces** — D5/T086) · **mem_limit:** 250M · **user:** `1026:100` + `group_add: ["0"]` (§D8) · **restart:** `unless-stopped`
 
 **`config/alloy/config.alloy` (skeleton — three pipelines):**
 
@@ -375,10 +375,11 @@ F004 publishes this into Mneme's `docs/observability.md`. The URL is **known now
 Decomposed in detail in [`tasks.md`](./tasks.md) (next). High-level shape:
 
 **0. Pre-flight gates** — F004-unique, the most consequential task group: **three impl-time verifications branch the topology of everything downstream**, so they run first and in roughly this order (most-branching first):
-   - **(a) Browser→receiver reachability + TLS edge — RESOLVED by T086 (2026-05-31): HTTP, no TLS, no proxy.** Mneme is HTTP on both paths (LAN `192.168.0.8:8080`, Tailscale `ds224plus.tailda1ab8.ts.net:8080`); no mixed-content constraint, no cert needed; host networking gives both routes free. The receiver binds host interfaces with a two-origin CORS list and the API key as sole gate. No remaining sub-task here beyond recording the posture.
-   - **(b) Alloy `faro.receiver` capability — THE live branch** — verify the pinned version exposes `api_key` + `cors_allowed_origins`. A real branch: **yes** → 2 containers (Alloy enforces natively); **no** → tiny HTTP Caddy (key + two-origin CORS, no TLS) on host interfaces. Settles 2- vs. 3-container topology + the 450M rebalance before any config is written.
-   - **(c) `docker manifest inspect`** to pin exact Loki 3.x / Alloy v1.x tags (F001 lesson: upstream tags occasionally lie).
-   - **(d) `stat` the Docker socket** on the DS224+ → confirms the D8 `group_add` GID (else the socket-proxy fallback).
+**ALL FOUR RESOLVED 2026-05-31 — clean 2-container topology:**
+   - **(a) Browser→receiver reachability + TLS edge → HTTP, no TLS, no proxy.** Mneme is HTTP on both paths (LAN `192.168.0.8:8080`, Tailscale `ds224plus.tailda1ab8.ts.net:8080`); no mixed-content constraint, no cert; host networking gives both routes free. Receiver binds host interfaces, two-origin CORS, API key as sole gate.
+   - **(b) Alloy `faro.receiver` capability → NATIVE confirmed.** `grafana/alloy:v1.5.1` run-validated with `api_key` + `cors_allowed_origins` in the `server` block. → **2 containers, no Caddy.**
+   - **(c) Image pins → `grafana/loki:3.3.2` + `grafana/alloy:v1.5.1`** (amd64 manifests confirmed, both pulled on the NAS).
+   - **(d) Docker socket → `root:root 660` → `group_add: ["0"]`**, uid stays 1026 (write restriction keys on uid). Data-root `/volume1/@docker`. D8 primary mechanism, no socket-proxy fallback.
 
 **1. Bind-mount paths + init script** — extend `init-nas-paths.sh` to create + `chown 1026:100` the Loki/Alloy `/volume1` dirs and `curl` their configs to absolute host paths (Portainer constraint). Document ACL restart-loop recovery in `docs/logs-setup.md`.
 
