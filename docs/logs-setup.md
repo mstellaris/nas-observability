@@ -222,6 +222,14 @@ verification (Mneme's frontend telemetry landing in Loki) is F012's own gate.
 
 ## Troubleshooting
 
+- **Transient Alloy errors right when the *metrics* stack is redeployed**
+  (`error inspecting Docker container: No such container`, `could not transfer
+  logs: context canceled`, positions-file cleanup): **expected, harmless,
+  self-correcting** — NOT a fault. Redeploying the metrics stack recreates its
+  six containers with new IDs; `loki.source.docker` correctly drops the old IDs
+  and re-discovers the new ones, resuming on its own (confirmed: stack returns
+  HEALTHY, logs keep flowing). A burst of these at the redeploy timestamp is
+  normal on any metrics-stack redeploy; don't misread it as an Alloy failure.
 - **Alloy can't read the Docker socket** (`permission denied` on
   `/var/run/docker.sock`): confirm the socket is `root:root 660`
   (`stat -c '%U:%G %a' /var/run/docker.sock`) and that the `alloy` service has
