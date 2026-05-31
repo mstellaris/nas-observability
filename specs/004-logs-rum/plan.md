@@ -128,7 +128,12 @@ Loki (localhost:3100)   [logs/exceptions/events/measurements only; traces droppe
 - **DSM owns :443** — it's in the forbidden-ports table; external HTTPS on this DS224+ goes through DSM's Application Portal regardless. Using it for TLS termination is the path of least resistance and needs no cert management from us (DSM handles Let's Encrypt). This is the one manual runbook step (Principle II carved exception), documented in `docs/logs-setup.md`.
 - **Alloy enforces key + CORS** — Alloy's `faro.receiver` `server` block exposes `api_key` and `cors_allowed_origins`. Putting enforcement here keeps it **declarative** (Principle II) in `config.alloy` via `sys.env("FARO_API_KEY")`, rather than relying on DSM's reverse proxy (which can add CORS response headers but **cannot** reject on a missing/wrong API key — it does no request authentication). No extra proxy container, so the subsystem stays at two services and the 450M budget holds.
 
-**Impl-time verification (Phase 0 gate):** confirm the pinned Alloy version's `faro.receiver` supports `api_key` **and** `cors_allowed_origins` in its `server` block. **Fallback if it does not:** add a minimal in-repo Caddy container (HTTP, localhost) doing key-check + CORS + proxy to `:3111`; rebalance to Loki 200 / Alloy 210 / Caddy 40 = 450M, and add Caddy on port 3112 + a `docs/ports.md` row. The fallback is fully specified so impl can take it without re-planning.
+**This topology has TWO Phase-0 dependencies that genuinely branch the rest of the work — sequence them first:**
+
+1. **The TLS edge requires a domain F004 cannot self-provision.** The DSM-Application-Portal path assumes the NAS has a **public domain/subdomain with a cert** pointable at the receiver. That is the one thing F004 can't conjure. Phase 0 MUST verify it exists. **If the NAS is Tailscale-only / has no public domain, the DSM-edge story changes** — the edge becomes either Tailscale's own TLS (MagicDNS + `tailscale cert`) or **Caddy-direct TLS on a high port**, and the "Caddy fallback" below is then the **primary** path, not a fallback. Do not assume DSM Application Portal + public domain is available; confirm the actual network reachability story for browser→receiver before building the edge.
+2. **The Alloy `api_key` capability is a real branch, not a formality.** There's a genuine chance the pinned `faro.receiver` lacks a native `api_key` attribute, which forces the Caddy proxy regardless of the domain situation. Run this check **early** in Phase 0 so the topology (2 containers vs. 3) is settled before any config is written.
+
+**Impl-time verification (Phase 0 gates):** (a) confirm a domain/subdomain + cert reachable by browsers is available (else the edge is Tailscale-TLS or Caddy-direct); (b) confirm the pinned Alloy version's `faro.receiver` supports `api_key` **and** `cors_allowed_origins`. **Caddy path (fallback *or* primary):** a minimal in-repo Caddy container doing key-check + CORS (+ TLS, if it's the edge) and proxying to `:3111`; rebalance to Loki 200 / Alloy 210 / Caddy 40 = 450M, add Caddy to `docs/ports.md` (port 3112 for HTTP-only behind DSM, or the TLS edge port if Caddy-direct). Fully specified so impl can take it without re-planning.
 
 ---
 
@@ -144,11 +149,12 @@ Alloy must simultaneously **write** WAL/positions to `/volume1` (→ run as `102
     group_add:
       - "0"            # GID owning /var/run/docker.sock — VERIFY at impl (Phase 0)
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /volume1/@docker/containers:/var/lib/docker/containers:ro   # log-file bodies for loki.source.docker
+      - /var/run/docker.sock:/var/run/docker.sock:ro    # socket ONLY — API-based collection
 ```
 
-**Impl-time verification (Phase 0 gate):** `stat -c '%U:%G %a' /var/run/docker.sock` on the DS224+ to confirm owner/group/mode and the exact GID to add. Also confirm the container-log path (DSM's Docker data-root is `/volume1/@docker`).
+**Socket-only — no container-log-path mount.** `loki.source.docker` is **API-based**: it streams logs over the Docker API (`GET /containers/<id>/logs`) through the socket. It does **not** read the on-disk json-file log bodies, so the `/volume1/@docker/containers` filesystem mount is **not needed** and is omitted. (That mount belongs to a *different* method — `loki.source.file` tailing the json-file logs directly. F004 uses the API method, so the two are not mixed.) If impl ever switches to file-tailing (e.g. to sidestep socket access entirely), *then* the `/volume1/@docker/containers:ro` mount applies and DSM's Docker data-root being `/volume1/@docker` is the correct, important detail — but that's an explicit alternative, not the default.
+
+**Impl-time verification (Phase 0 gate):** `stat -c '%U:%G %a' /var/run/docker.sock` on the DS224+ to confirm owner/group/mode and the exact GID for `group_add`.
 
 **Security note + fallback:** `group_add: ["0"]` grants Alloy group-root read, which over a mode-660 socket is effectively full Docker-API access (it only *does* GETs, but the capability is broad). Acceptable for a single-operator homelab. **Fallback if a tighter grant is wanted:** a read-only `tecnativa/docker-socket-proxy` sidecar (runs as root, exposes a filtered read-only Docker API on a localhost TCP port; Alloy points `loki.source.docker` at `tcp://localhost:<port>` and stays unprivileged). Costs ~20M (rebalance Alloy 230 / proxy 20) + a port-table row. Documented so impl can escalate to it if the bare `group_add` is judged too broad.
 
@@ -203,13 +209,14 @@ compactor:
   retention_enabled: true                # enables deletion (default is OFF)
   delete_request_store: filesystem
 
-# Size guard (whichever binds first with 7d): enforced via a periodic disk check
-# documented in docs/logs-setup.md; exact mechanism + threshold set at impl vs. observed volume.
+# Disk protection = 7d time retention (automatic, above) + operator disk-watch (NOT an auto
+# size cap — Loki filesystem store has no native total-bytes eviction). Disk-usage check
+# lives in docs/logs-setup.md / diagnose.sh; lever if it grows is shortening retention.
 ```
 
 **Notes:**
-- `retention_enabled: true` is the line that makes the 7d cap actually delete — Loki's default leaves it OFF (unbounded). FR-47.
-- The **size guard** is the "whichever binds first" companion to 7d. Loki's filesystem store has no native total-size eviction the way Prometheus' `--storage.tsdb.retention.size` does; impl picks the mechanism (a documented disk-usage check + alert-to-operator, or a shorter effective retention if volume is high). Captured as an impl task, not hand-waved.
+- `retention_enabled: true` is the line that makes the 7d cap actually delete — Loki's default leaves it OFF (unbounded). FR-47. **The 7-day time retention IS automatic; the "size" half is NOT.**
+- **The "size guard" is not an automatic total-size cap — be honest about this.** Unlike Prometheus' `--storage.tsdb.retention.size`, Loki's filesystem store has **no native total-bytes eviction**. So the disk protection is really **7-day time retention (automatic) + operator disk-watch (vigilance)**: a documented disk-usage check (in `docs/logs-setup.md` / `diagnose.sh`) the operator monitors, and the lever if it grows is *shortening effective retention*, not a byte cap that auto-trims. At single-operator scale this is fine — but `tasks.md` and the spec's "whichever binds first" must not imply an automatic hard size cap that doesn't exist. The honest framing: time-bounded automatically, size-bounded by watching.
 - No Docker healthcheck (Loki images are minimal); health signal is the `/ready` endpoint, checked in the acceptance walk-through.
 
 ---
@@ -303,7 +310,7 @@ Per memory `project_portainer_bind_mounts`, Loki/Alloy config files **cannot** b
 2. **`chown -R 1026:100`** all of the above (DSM admin UID; v1.1) — and document the `synoacltool -del` + `chown` recovery for the ACL restart-loop (memory `project_dsm_acl_recovery`) in `docs/logs-setup.md`, same discipline every bind-mount feature follows.
 3. **`curl`** the committed `loki-config.yaml` and `config.alloy` from the repo raw URL to absolute host paths (e.g. `/volume1/docker/observability/loki/loki-config.yaml`), which the compose then mounts read-only. Same pattern F001–F003 use for service configs.
 
-`docker-compose.logs.yml` mounts: config files `:ro`, state dirs `:rw`, and (Alloy) the Docker socket `:ro` + container-log path `:ro` (§D8). State paths and config paths are distinct → no bind-mount masking (v1.1 baked-vs-state, applied to bind-mounted upstream).
+`docker-compose.logs.yml` mounts: config files `:ro`, state dirs `:rw`, and (Alloy) the Docker socket `:ro` only (§D8 — API-based collection, no container-log-path mount). State paths and config paths are distinct → no bind-mount masking (v1.1 baked-vs-state, applied to bind-mounted upstream).
 
 ---
 
@@ -349,10 +356,13 @@ F004 publishes this into Mneme's `docs/observability.md`. Draft shape (finalized
 - **CORS:**      only `<mneme-frontend-origin>` is allowed (never `*`); other origins are blocked by the browser
 - **Accepted signals:** logs, exceptions, events, measurements (web-vitals)
 - **Dropped signals:**  traces/spans — APM/Tempo is deferred (Constitution v1.3); the SDK may emit them, they are discarded server-side
-- **SDK init (Mneme F012 side):** initializeFaro({ url: <Endpoint>, apiKey: <key>, app: { name: 'mneme-frontend' } })
+- **SDK init (illustrative — exact Faro Web SDK init verified F012-side):**
+    initializeFaro({ url: <Endpoint>, app: { name: 'mneme-frontend' }, /* send x-api-key via the transport's requestOptions.headers */ })
 ```
 
-**Timing (Spec D6/D7):** the endpoint URL is gated on D5 standing up the DSM edge. Until then Mneme F012 can integrate against a placeholder URL — the rest of the contract is stable. F004 is not "done" until this block is published (it's the unparking artifact); F004 does **not** wait for Mneme to consume it.
+**What's authoritative vs. illustrative.** The producer-owned, authoritative parts of this contract are the **endpoint**, the **`x-api-key` header name**, the **CORS origin**, and the **accepted/dropped signal classes** — those are the interface F004 owns. The `initializeFaro(...)` snippet is **illustrative only**; the Faro Web SDK typically sets custom headers via the transport's `requestOptions.headers` rather than a top-level `apiKey` field, and the exact init shape is **F012's mechanics, verified F012-side**. The contract fixes *the header to send*, not *how Mneme's SDK sends it* — marked so a snippet mismatch doesn't mislead F012.
+
+**Timing (Spec D6/D7):** the endpoint URL is gated on D5 standing up the TLS edge. Until then Mneme F012 can integrate against a placeholder URL — the rest of the contract is stable. F004 is not "done" until this block is published (it's the unparking artifact); F004 does **not** wait for Mneme to consume it.
 
 ---
 
@@ -360,10 +370,11 @@ F004 publishes this into Mneme's `docs/observability.md`. Draft shape (finalized
 
 Decomposed in detail in [`tasks.md`](./tasks.md) (next). High-level shape:
 
-**0. Pre-flight gates** — F004-unique, all resolvable before any deploy:
-   - `docker manifest inspect` to pin exact Loki 3.x / Alloy v1.x tags (F001 lesson: upstream tags occasionally lie).
-   - Verify Alloy `faro.receiver` supports `api_key` + `cors_allowed_origins` in the pinned version → confirms D5 needs no Caddy (else take the documented Caddy fallback).
-   - `stat` the Docker socket on the DS224+ → confirms the D8 `group_add` GID (else take the socket-proxy fallback).
+**0. Pre-flight gates** — F004-unique, the most consequential task group: **three impl-time verifications branch the topology of everything downstream**, so they run first and in roughly this order (most-branching first):
+   - **(a) Browser→receiver reachability + TLS edge** — confirm whether the NAS has a public domain/subdomain + cert (→ DSM Application Portal edge) **or** is Tailscale-only / domain-less (→ Tailscale-TLS or Caddy-direct edge, making Caddy the *primary* path). This is the dependency F004 can't self-provision; settle it before building any edge.
+   - **(b) Alloy `faro.receiver` capability** — verify the pinned version exposes `api_key` + `cors_allowed_origins`. A real branch (genuine chance it's absent → Caddy proxy regardless of (a)). Settles 2-container vs. 3-container topology + the 450M rebalance before any config is written.
+   - **(c) `docker manifest inspect`** to pin exact Loki 3.x / Alloy v1.x tags (F001 lesson: upstream tags occasionally lie).
+   - **(d) `stat` the Docker socket** on the DS224+ → confirms the D8 `group_add` GID (else the socket-proxy fallback).
 
 **1. Bind-mount paths + init script** — extend `init-nas-paths.sh` to create + `chown 1026:100` the Loki/Alloy `/volume1` dirs and `curl` their configs to absolute host paths (Portainer constraint). Document ACL restart-loop recovery in `docs/logs-setup.md`.
 
@@ -377,7 +388,7 @@ Decomposed in detail in [`tasks.md`](./tasks.md) (next). High-level shape:
 
 **6. Synthetic beacon verification** — run the four-assertion beacon (key / CORS / trace-drop / landing). Fully within F004's control; no F012 dependency.
 
-**7. Retention-deletion verification (SEPARATE from the 24h observation)** — short-retention test: temporarily set Loki retention to ~1h, ingest, confirm the compactor deletes expired chunks/index on schedule, restore 7d. This proves the deletion mechanism, which a 24h window structurally cannot (Spec §phase-8). Plus: confirm the size-guard mechanism is wired.
+**7. Retention-deletion verification (SEPARATE from the 24h observation)** — short-retention test: temporarily set Loki retention to ~1h, ingest, confirm the compactor deletes expired chunks/index on schedule, restore 7d. This proves the **time-retention deletion mechanism** (automatic), which a 24h window structurally cannot (Spec §phase-8). Plus: install the **operator disk-watch** (disk-usage check in `docs/logs-setup.md` / `diagnose.sh`) — NOT an automatic size cap (Loki has no native total-bytes eviction); the honest protection is time-retention + vigilance, and `tasks.md` states that plainly rather than implying an auto size cap.
 
 **8. Publish the Faro contract block** into Mneme's `docs/observability.md` (FR-56) — the F012-unparking artifact. Endpoint URL filled in once Phase 5's DSM edge fixes it.
 
@@ -397,7 +408,7 @@ Phase 0 and Phase 7 are the F004-equivalents of F003's Phase 0 / Phase 5 discipl
 | DSM Docker socket perms differ from `root:root 660` assumption | Medium | Phase 0 `stat`s the socket and sets the exact `group_add` GID. Socket-proxy fallback (§D8) if `group_add` is insufficient or judged too broad. |
 | Portainer relative bind mounts silently fail (configs invisible) | Medium — known trap | Init script `curl`s configs to absolute `/volume1` paths (memory `project_portainer_bind_mounts`); compose mounts those absolute paths. Same pattern as F001–F003. |
 | DSM ACL restart-loop on the new Loki/Alloy bind mounts | Medium — recurring | `init-nas-paths.sh` pre-creates + `chown`s; `docs/logs-setup.md` documents `synoacltool -del` + `chown` recovery (memory `project_dsm_acl_recovery`). |
-| Log volume blows past the size guard before 7 days | Medium | `retention_enabled` + size guard bound disk (whichever binds first); Phase 7 verifies deletion fires; per-stream rate limits in Loki `limits_config` available if a container floods. NFR-21 frames hitting the guard as a volume signal to investigate. |
+| Log volume fills the disk before 7-day retention reclaims it | Medium | 7-day time retention is automatic; there is **no auto byte-cap** (Loki filesystem store has none). Protection is retention + **operator disk-watch** (Phase 7); levers if it grows: shorten retention, or per-stream rate limits in Loki `limits_config`. Honest framing — size protection is partly vigilance, not an automatic hard cap. |
 | Loki stream cardinality explosion (too many label values) | Low–Medium | Canonical label set kept small (`container`, `compose_service`, `job`); JSON fields parsed at query time (`| json`), not promoted to labels. Documented as the labeling discipline in `docs/logs-setup.md`. |
 | Grafana image rebuild regresses an F001–F003 dashboard | Low | Existing build-workflow verification + Scenario 7 confirms datasources healthy and dashboards render post-rebuild (NFR-22). |
 | Alloy crash-loops when Loki is down | Low | `loki.write` retries with backoff + WAL by default (FR-50); verified by cycling Loki in the acceptance walk-through. |
