@@ -12,7 +12,7 @@
 22 tasks across 11 phases (Phase 0 + Phases 1–10), numbered **T086–T107** (continuing F003's T057–T085 sequence). Tasks marked `[P]` can run in parallel with other `[P]` tasks in the same phase.
 
 **Phase 0 is the most consequential task group.** Three of its four verifications *branch the topology of everything downstream* — they are not formalities:
-- **T086 (TLS edge / domain)** decides whether the receiver's HTTPS edge is DSM Application Portal (public domain + cert) or Tailscale-TLS / Caddy-direct (domain-less). If domain-less, **Caddy becomes the primary edge**, not a fallback.
+- **T086 (TLS edge / domain) — RESOLVED 2026-05-31: HTTP, no TLS, no proxy.** Mneme is HTTP, so beacons need no TLS; host networking gives both LAN + Tailscale routes free; receiver binds host interfaces with two-origin CORS + API key as sole gate. The TLS/domain/proxy branch is closed; only T087 remains live.
 - **T087 (Alloy `api_key`)** decides 2-container vs. 3-container topology (native enforcement vs. a Caddy key/CORS proxy) — and the 450M budget split.
 - **T089 (socket `stat`)** decides the D8 `group_add` GID vs. the socket-proxy fallback.
 
@@ -33,19 +33,18 @@ Run Phase 0 first and let its outcomes settle the config shape before writing an
 
 All four are verification-only and can run in parallel `[P]`, but their *outcomes* gate later phases. Capture every result in the PR description.
 
-### T086 — Verify browser→receiver reachability + the TLS edge `[P]`
+### T086 — Browser→receiver reachability + TLS edge `[RESOLVED 2026-05-31]`
 
-**Files:** (none; verification-only — outcome recorded in PR + `docs/logs-setup.md`)
+**Files:** (none; resolution recorded in PR + `docs/logs-setup.md`)
 
-**Acceptance:**
+**Resolution (operator network audit):** **HTTP, no TLS, no proxy.** Mneme is served over HTTP on both paths — `http://192.168.0.8:8080` (LAN) and `http://ds224plus.tailda1ab8.ts.net:8080` (Tailscale). No public domain / cert / Let's Encrypt; free-tier Tailscale. Because the Mneme page is HTTP, beacons to an HTTP receiver have no mixed-content constraint and need no TLS; host networking makes the receiver's host port answer on both routes automatically. The DSM-Application-Portal / TLS-edge / Caddy-for-TLS paths are all eliminated.
 
-**Given** the Faro receiver must be reachable from browsers over HTTPS with a valid cert (Spec FR-51, Plan §D5)
-**When** the operator audits the NAS's external-access story
-**Then** one of these edges is confirmed and recorded:
-  - **(A) DSM Application Portal** — a public domain/subdomain with a DSM-managed cert is available and pointable at `localhost:<receiver-port>`. Default path.
-  - **(B) Tailscale-only / domain-less** — no public domain; the edge becomes Tailscale-TLS (MagicDNS + `tailscale cert`) or **Caddy-direct TLS on a high port**, and **Caddy is the primary edge** (not a fallback).
-**And** the chosen edge determines T100's implementation and the contract block's endpoint URL (T103)
-**And** if (B), this also implies the Caddy path for key/CORS unless T087 shows Alloy can do key+CORS while Caddy does only TLS — record the interaction
+**Settled consequences (feed T099/T100/T103):**
+- Receiver binds **host interfaces** (`0.0.0.0:3111`), NOT localhost — directly reachable on LAN + tailnet, **API key is the sole gate** (documented posture, acceptable single-user).
+- CORS allow-list = **two origins**: `http://192.168.0.8:8080` + `http://ds224plus.tailda1ab8.ts.net:8080`, explicit, never `*`.
+- Endpoint URLs are **known now** — `http://192.168.0.8:3111` (LAN) and `http://ds224plus.tailda1ab8.ts.net:3111` (Tailscale); no placeholder, no timing gate on the contract (T103).
+- Encryption posture: HTTP plaintext on LAN; WireGuard-encrypted on the Tailscale path. No end-to-end TLS, accepted.
+- Only residual branch is **T087** (native Alloy key/CORS vs. a tiny **HTTP** Caddy — no TLS either way).
 
 ### T087 — Verify Alloy `faro.receiver` capability (api_key + CORS) `[P]`
 
@@ -55,9 +54,9 @@ All four are verification-only and can run in parallel `[P]`, but their *outcome
 
 **Given** Plan §D5 prefers native Alloy enforcement of `api_key` + `cors_allowed_origins`
 **When** the operator checks the pinned Alloy version's `faro.receiver` `server` block reference (and/or a quick local smoke of the config)
-**Then** it is confirmed whether `api_key` AND `cors_allowed_origins` are both supported
-**And** if **yes** → 2-container topology (Loki + Alloy), budget Loki 200 / Alloy 250 = 450M; Alloy enforces key+CORS
-**And** if **no** (api_key absent) → 3-container topology: add a minimal Caddy proxy for key+CORS; rebalance Loki 200 / Alloy 210 / Caddy 40 = 450M; Caddy gets a `docs/ports.md` row (T093/T100)
+**Then** it is confirmed whether `api_key` AND `cors_allowed_origins` (plural list) are both supported
+**And** if **yes** → 2-container topology (Loki + Alloy), budget Loki 200 / Alloy 250 = 450M; Alloy enforces key + two-origin CORS on host interfaces
+**And** if **no** (api_key absent) → 3-container topology: add a minimal **HTTP** Caddy (key + two-origin CORS, **no TLS**) on host interfaces, proxying to Alloy on `127.0.0.1:3111`; rebalance Loki 200 / Alloy 210 / Caddy 40 = 450M; Caddy gets a `docs/ports.md` row (T093/T100)
 **And** the outcome is recorded before any `config.alloy` is written (T094/T099)
 
 ### T088 — Pin Loki + Alloy image versions `[P]`
@@ -110,7 +109,7 @@ Honors the Portainer absolute-path constraint (memory `project_portainer_bind_mo
 
 **Given** the logs/RUM subsystem needs a NAS-side runbook (sister to `docs/snmp-setup.md`, `docs/mneme-setup.md`)
 **When** `docs/logs-setup.md` is written
-**Then** it covers: (1) bind-mount path pre-creation + `chown 1026:100`; (2) **DSM ACL restart-loop recovery** (`synoacltool -del` + `chown`, memory `project_dsm_acl_recovery`); (3) the TLS-edge setup per T086's chosen path (DSM Application Portal subdomain, or Tailscale/Caddy); (4) API-key generation (`openssl rand -base64 32`) + setting `FARO_API_KEY` / `FARO_ALLOWED_ORIGIN` in Portainer stack env; (5) the operator disk-watch for Loki (disk-usage check — NOT an automatic size cap; lever is shortening retention); (6) pointer to the published contract block
+**Then** it covers: (1) bind-mount path pre-creation + `chown 1026:100`; (2) **DSM ACL restart-loop recovery** (`synoacltool -del` + `chown`, memory `project_dsm_acl_recovery`); (3) the **receiver posture** (D5/T086 — HTTP, no TLS, host-interface binding, API-key-as-sole-gate, two-origin CORS, LAN-plaintext / Tailscale-WireGuard encryption note); (4) API-key generation (`openssl rand -base64 32`) + setting `FARO_API_KEY` / `FARO_ALLOWED_ORIGINS` (two origins) in Portainer stack env; (5) the operator disk-watch for Loki (disk-usage check — NOT an automatic size cap; lever is shortening retention); (6) pointer to the published contract block
 **And** it states plainly that Loki's disk protection is 7-day time retention (automatic) + operator vigilance, not an auto byte-cap
 
 ---
@@ -172,7 +171,7 @@ Honors the Portainer absolute-path constraint (memory `project_portainer_bind_mo
 **When** the `alloy` service is added (`network_mode: host`, `restart: unless-stopped`, `user: "1026:100"`, `group_add: ["<gid>"]`, `mem_limit: 250M`, pinned image, config `:ro` + state `:rw` + Docker socket `:ro` **only**) and deployed
 **Then** the `alloy` container enters `running` and reads the Docker socket successfully (no permission errors in logs)
 **And** Alloy does NOT crash-loop if Loki is cycled (retries + resumes — FR-50, verified by stopping/starting Loki and watching restart counts stay flat over 10 min)
-**And** `docs/ports.md` moves Alloy 3110 (UI) + 3111 (faro.receiver, localhost) into Current assignments (and Caddy 3112 if T087 forced the proxy)
+**And** `docs/ports.md` moves Alloy 3110 (UI) + 3111 (faro.receiver, **host interfaces** — D5/T086) into Current assignments (and Caddy 3112 if T087 forced the proxy)
 
 ### T096 — Verify container logs in Grafana Explore
 
@@ -215,7 +214,7 @@ Honors the Portainer absolute-path constraint (memory `project_portainer_bind_mo
 
 ---
 
-## Phase 5: Faro Receiver + TLS Edge
+## Phase 5: Faro Receiver Exposure + Secrets (no TLS edge — D5/T086)
 
 ### T099 — Add the `faro.receiver` pipeline to `config.alloy`
 
@@ -223,24 +222,26 @@ Honors the Portainer absolute-path constraint (memory `project_portainer_bind_mo
 
 **Acceptance:**
 
-**Given** T087 confirmed (or denied) native Alloy key+CORS
+**Given** T087 confirmed (or denied) native Alloy key+CORS, and T086 fixed the HTTP/host-interface posture
 **When** the `faro.receiver` pipeline 3 is added
-**Then** it binds `127.0.0.1:3111`, sets `cors_allowed_origins = [sys.env("FARO_ALLOWED_ORIGIN")]` (explicit, never `*`) and `api_key = sys.env("FARO_API_KEY")` (if T087 confirmed native support; else this enforcement lives in Caddy per T100)
+**Then** it binds **`0.0.0.0:3111`** (host interfaces, NOT localhost — D5/T086, so LAN + Tailscale browsers reach it), sets `cors_allowed_origins = split(sys.env("FARO_ALLOWED_ORIGINS"), ",")` (the **two** origins, explicit, never `*`) and `api_key = sys.env("FARO_API_KEY")` (if T087 confirmed native support; else this enforcement lives in the HTTP Caddy per T100)
 **And** `output { logs = [loki.write...]; traces = [] }` — **traces output UNWIRED** so trace signals are dropped (FR-49, Scenario 6; the literal in-code APM-deferral seam)
-**And** secrets come via `sys.env` (no envsubst/sed templating — sidesteps memory `project_dsm_no_envsubst`)
+**And** secrets/origins come via `sys.env` (no envsubst/sed templating — sidesteps memory `project_dsm_no_envsubst`)
+**And** a config comment documents the host-interface + API-key-as-sole-gate posture (D5/T086)
 
-### T100 — Stand up the TLS edge + wire secrets
+### T100 — Receiver exposure + secrets (no TLS edge — D5/T086)
 
 **Files:** `.env.example`, `docs/logs-setup.md` (+ `docker-compose.logs.yml` & `docs/ports.md` if Caddy), Portainer stack env (operational)
 
 **Acceptance:**
 
-**Given** T086 chose the edge (DSM Application Portal / Tailscale / Caddy-direct) and T087 chose the enforcement point
-**When** the edge is stood up
-**Then** TLS terminates at the chosen edge and forwards to the localhost Faro receiver (or to Caddy → receiver)
-**And** `FARO_API_KEY` and `FARO_ALLOWED_ORIGIN` are set in Portainer stack env; `.env.example` documents both variable names (values not committed — v1.3 Secrets)
-**And** if T087 forced the Caddy path: a minimal Caddy container is added to `docker-compose.logs.yml` (key-check + CORS + proxy to `:3111`), rebalanced ≤ 500M, with its port in `docs/ports.md`
-**And** the public endpoint URL is now fixed (feeds T103's contract block)
+**Given** T086 resolved the edge to HTTP / host interfaces / no proxy, and T087 chose the enforcement point — **there is no TLS edge to stand up**
+**When** receiver exposure is finalized
+**Then** the receiver answers over HTTP on `http://192.168.0.8:3111` (LAN) and `http://ds224plus.tailda1ab8.ts.net:3111` (Tailscale) via host networking — verified with a `curl` from both a LAN host and a Tailscale-connected client
+**And** `FARO_API_KEY` and `FARO_ALLOWED_ORIGINS` (the two origins, comma-joined) are set in Portainer stack env; `.env.example` documents both variable names (values not committed — v1.3 Secrets)
+**And** `docs/logs-setup.md` documents the chosen posture: HTTP (no TLS), host-interface binding, API-key-as-sole-gate, two-origin CORS, and the LAN-plaintext / Tailscale-WireGuard encryption note
+**And** if T087 forced the Caddy path: a minimal **HTTP** Caddy container (key + two-origin CORS, no TLS) is added to `docker-compose.logs.yml` on host interfaces, rebalanced ≤ 500M, with its port in `docs/ports.md`
+**And** the endpoint URLs are confirmed (feed T103's contract block — already known from T086, this just verifies reachability)
 
 ---
 
@@ -287,9 +288,10 @@ Honors the Portainer absolute-path constraint (memory `project_portainer_bind_mo
 
 **Acceptance:**
 
-**Given** T100 fixed the public endpoint URL
+**Given** the endpoint URLs are known (T086 — no TLS edge gate) and verified reachable (T100)
 **When** the Faro contract block (Plan §Faro contract block) is published into Mneme's `docs/observability.md`
-**Then** it states the authoritative producer-owned interface: **endpoint URL**, **`x-api-key` header name**, **CORS allowed-origin**, **accepted signals** (logs/exceptions/events/measurements) and **dropped signals** (traces)
+**Then** it states the authoritative producer-owned interface: **both endpoint URLs** (`http://192.168.0.8:3111` LAN + `http://ds224plus.tailda1ab8.ts.net:3111` Tailscale, with the Tailscale one as recommended remote default), **`x-api-key` header name**, the **two CORS allowed-origins**, **accepted signals** (logs/exceptions/events/measurements) and **dropped signals** (traces)
+**And** it notes F012 selects the endpoint matching how the browser loaded Mneme, and the HTTP/no-TLS + LAN-plaintext / Tailscale-WireGuard transport posture
 **And** the `initializeFaro(...)` snippet is marked **illustrative — exact SDK init verified F012-side** (Faro sets headers via the transport's `requestOptions.headers`, not necessarily a top-level field)
 **And** publishing this is recorded as an F004 done-criterion (it unparks F012); F004 does NOT wait for Mneme to consume it (Spec D6/D7)
 

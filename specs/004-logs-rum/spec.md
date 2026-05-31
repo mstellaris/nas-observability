@@ -19,7 +19,7 @@ Two upstream services join the stack, in a **new compose file** (`docker-compose
 The data flows v1.3 codified:
 
 - **Backend logs:** containers (incl. Mneme) → Docker stdout → Alloy (`loki.source.docker`) → Loki → Grafana.
-- **Frontend RUM:** browser (Faro Web SDK) → nas-observability-owned reverse proxy (TLS + API key + CORS) → Alloy `faro.receiver` (localhost) → Loki → Grafana.
+- **Frontend RUM:** browser (Faro Web SDK, HTTP) → Alloy `faro.receiver` (host-interface HTTP port, API key + two-origin CORS, no TLS, no proxy — D5/T086) → Loki → Grafana.
 
 F004 also touches the **metrics-side Grafana image**: it bakes a Loki datasource (`uid: loki`) into the custom image so logs and RUM are explorable alongside metrics. That is the only change to the metrics subsystem; Prometheus, the exporters, and their 600 MB budget are untouched.
 
@@ -66,18 +66,18 @@ As Stellar, I want Mneme's backend logs (and every container's logs) and its fro
 
 **Scenario 4: Faro receiver accepts a valid beacon and rejects an unauthenticated one**
 
-**Given** the Faro receiver is live behind the reverse proxy with an API key configured and Mneme's frontend origin allow-listed
-**When** the operator POSTs a Faro-format payload (a synthetic beacon containing a log + an exception + a measurement) to the receiver's public URL **with** the correct API key and `Origin: <mneme-frontend-origin>`
+**Given** the Faro receiver is live on a host-interface HTTP port with an API key configured and both operator origins allow-listed (no reverse proxy — D5/T086)
+**When** the operator POSTs a Faro-format payload (a synthetic beacon containing a log + an exception + a measurement) to the receiver's host URL (`http://192.168.0.8:<port>` or `http://ds224plus.tailda1ab8.ts.net:<port>`) **with** the correct API key and a matching `Origin`
 **Then** the request succeeds (2xx)
 **And** the accepted signals appear in Loki, queryable in Grafana (e.g. `{app="mneme-frontend"}` or the agreed RUM label set)
 **When** the same payload is POSTed **without** the API key (or with a wrong key)
-**Then** the reverse proxy rejects it (401/403) before it reaches Alloy
+**Then** it is rejected (401/403) — by Alloy's `faro.receiver` natively, or the HTTP Caddy if T087 forced it
 
 **Scenario 5: CORS is enforced — Mneme's origin allowed, others refused**
 
-**Given** the receiver's CORS allow-list contains exactly Mneme's frontend origin (never `*`)
-**When** a browser preflight (`OPTIONS`) arrives with `Origin: <mneme-frontend-origin>`
-**Then** the response carries `Access-Control-Allow-Origin: <mneme-frontend-origin>` and the beacon POST is permitted
+**Given** the receiver's CORS allow-list contains exactly the **two** operator origins — `http://192.168.0.8:8080` and `http://ds224plus.tailda1ab8.ts.net:8080` — never `*` (D5/T086)
+**When** a browser preflight (`OPTIONS`) arrives with `Origin` matching either allow-listed origin
+**Then** the response echoes that `Access-Control-Allow-Origin` and the beacon POST is permitted
 **When** a preflight arrives with any other `Origin`
 **Then** the allow-origin header is absent and the browser blocks the cross-origin POST
 
@@ -128,7 +128,7 @@ As Stellar, I want Mneme's backend logs (and every container's logs) and its fro
 - **DSM UID restriction vs. Docker-socket access (real tension — flagged for `/plan`).** Alloy must both *write* its WAL/positions to a `/volume1` bind mount (→ run as `1026:100` per v1.1) **and** *read* the root-owned Docker socket for `loki.source.docker`. These can conflict on DSM. `/plan` resolves the mechanism (e.g. `group_add` the docker GID, a socket-proxy sidecar, or reading container log files directly from the Docker data path). Surfaced here because it's a known DSM friction, not discovered late.
 - **Log volume spikes (e.g. Mneme error storm or a chatty container).** Retention + size guard (Scenario 8) bound disk; if the size guard binds before 7 days, older logs are dropped first. Documented as expected behavior, not a failure. If a single container floods, `/plan` may add per-stream rate limits in Loki — noted, not pre-committed.
 - **Faro receiver reachable but Mneme not yet sending.** The receiver sits idle; no error. RUM queries return "no data" cleanly. F012 begins sending when its migration lands — F004 is robust to the consumer not existing yet.
-- **Reverse proxy misconfiguration (key or CORS wrong).** Browser beacons fail CORS or get 401. The contract block (D6) documents the exact origin, key header, and endpoint so Mneme's F012 configures the SDK correctly; a mismatch surfaces as a browser console CORS error, diagnosable from the contract.
+- **Receiver key/CORS misconfiguration.** Browser beacons fail CORS or get 401. The contract block (D6) documents the exact origins, key header, and endpoints so Mneme's F012 configures the SDK correctly; a mismatch surfaces as a browser console CORS error, diagnosable from the contract. (Common case: the browser used one origin — e.g. Tailscale — but only the LAN origin was allow-listed; both must be present.)
 - **Host networking port collision in the 3100–3199 band.** Loki (HTTP 3100, gRPC 3101), Alloy (UI 3110, Faro receiver 3111) all bind host ports. If DSM or another service holds one, deploy fails loudly (Principle III). `ss -tlnp | grep <port>` diagnoses, per `docs/setup.md`.
 - **Grafana image rebuild regresses an existing dashboard.** F004 rebuilds the custom Grafana image to add the Loki datasource. The build's existing verification (dashboard provisioning, datasource UIDs) must still pass; Scenario 7 confirms F001–F003 dashboards render unchanged post-rebuild.
 - **Alloy reads its own logs / feedback loop.** `loki.source.docker` discovers *all* containers, including Alloy and Loki themselves. Benign (their logs are useful) but worth noting; no special handling unless volume warrants it.
@@ -145,12 +145,12 @@ As Stellar, I want Mneme's backend logs (and every container's logs) and its fro
 - **FR-48:** `alloy` MUST ship **backend logs** to Loki: container stdout via `loki.source.docker` (Docker-socket discovery — covers Mneme's pino JSON and all other containers) plus host system logs. Mneme requires **no application-side change** to be collected — its existing JSON-to-stdout logging is sufficient. [Constitution v1.3: Observability coverage §Logs; Q-answer: Docker stdout discovery]
 - **FR-49:** `alloy` MUST run a **Faro receiver** (`faro.receiver`) that accepts frontend telemetry and forwards it to Loki. The receiver's `output` MUST wire **logs only**; the **traces output MUST be left unwired** so trace/span signals are dropped. This enforces v1.3's APM/Tempo deferral in code, not prose. Accepted signal classes: logs, exceptions, events, measurements. [Constitution v1.3: Observability scope boundaries; ruling #6]
 - **FR-50:** Alloy MUST **retry gracefully** if Loki is unavailable at start or during operation — connection failures MUST NOT cause a crash-loop; Alloy retries with backoff and resumes when Loki returns. [ruling #2]
-- **FR-51:** The Faro receiver MUST bind **localhost** and sit behind a **nas-observability-owned reverse proxy** that enforces **TLS + API key + CORS**. CORS allowed-origins MUST be set to Mneme's frontend origin explicitly and MUST NEVER be `*`. The API key MUST live in the gitignored `.env` (per v1.3 Secrets). The reverse-proxy *placement* (DSM Application Portal vs. an in-repo proxy container) is deferred to `/plan` (D5); the *enforcement contract* (TLS + key + CORS, receiver on localhost) is fixed here. [Constitution v1.3: Principle III, Secrets; ruling #4]
+- **FR-51:** *(Revised by T086 resolution, 2026-05-31 — see D5.)* The Faro receiver MUST enforce an **API key** and a **CORS allow-list** before accepting telemetry. The allow-list MUST contain **both** origins the operator actually uses — `http://192.168.0.8:8080` (LAN) and `http://ds224plus.tailda1ab8.ts.net:8080` (Tailscale) — explicitly, and MUST NEVER be `*`. The API key + the two origins live in env (per v1.3 Secrets), not committed config. The receiver runs over **HTTP with no TLS** and binds the **host's accessible interfaces** (NOT localhost) so LAN and Tailscale browsers reach it directly via host networking — **no reverse proxy** is involved for reachability. The API key is therefore the **sole access layer** (not a second layer behind a proxy) — a deliberate, documented security posture acceptable for a single-user trusted LAN+tailnet. Enforcement is native in Alloy's `faro.receiver` if the pinned version supports it (T087); otherwise a minimal **HTTP** Caddy (key+CORS, no TLS) on host interfaces. [Constitution v1.3: Principle III, Secrets; ruling #4]
 - **FR-52:** The custom Grafana image MUST bake a **Loki datasource** with explicit `uid: loki` (URL `http://localhost:3100`) alongside the existing `uid: prometheus`. This is the only change to the metrics subsystem. The image is rebuilt and redeployed; existing F001–F003 dashboards MUST render unchanged. [Constitution v1.1: datasource UIDs must be explicit; v1.3: one Grafana]
 - **FR-53:** `loki` and `alloy` MUST run as the DSM admin UID `1026:100` (via compose `user:`) because both persist state to `/volume1` bind mounts (Loki: chunks + index; Alloy: WAL + positions). The bind-mount host paths MUST be declared in `docker-compose.logs.yml` AND documented in `docs/setup.md` with the UID/GID guidance and the DSM ACL restart-loop recovery. [Constitution v1.1: DSM UID restriction, baked-vs-state; memory `project_dsm_acl_recovery`]
 - **FR-54:** The system MUST update `docs/ports.md`, moving the F004 reservations into "Current assignments": **Loki HTTP 3100**, **Loki gRPC 3101**, **Alloy UI 3110**, **Alloy Faro receiver 3111** — all within the `3100–3199` logs/RUM range. Loki's gRPC port MUST be remapped into the band (off its upstream default 9095, which would otherwise sit in the Prometheus-adjacent range). [Constitution v1.3: Principle III, `3100–3199` range]
 - **FR-55:** Logs/RUM subsystem `mem_limit` sum MUST stay within the **500 MB** logs/RUM cap (independent of the metrics 600 MB cap): Loki 200M + Alloy 250M = 450M, leaving 50M headroom. [Constitution v1.3: Principle IV §two-subsystem budgets]
-- **FR-56:** F004 MUST **publish the Faro receiver contract** in a form that drops into Mneme's `docs/observability.md`: the receiver endpoint (public proxy URL), CORS allowed-origins, API-key handling, and the accepted-vs-dropped signal classes. Publishing this contract is part of F004's definition of done — it is the artifact that unparks Mneme F012. F004 does **not** wait for Mneme to consume it. [D6, D7]
+- **FR-56:** F004 MUST **publish the Faro receiver contract** in a form that drops into Mneme's `docs/observability.md`: the receiver endpoints (both host-interface HTTP URLs — LAN `http://192.168.0.8:<port>` and Tailscale `http://ds224plus.tailda1ab8.ts.net:<port>`, with a recommended default), CORS allowed-origins (the two), API-key handling, and the accepted-vs-dropped signal classes. Publishing this contract is part of F004's definition of done — it is the artifact that unparks Mneme F012. F004 does **not** wait for Mneme to consume it. [D6, D7]
 - **FR-57:** F004's completion MUST be verifiable via a **synthetic Faro beacon** that F004 sends itself (keyed POST from the allowed origin, containing logs + exception + measurement + trace): confirming the key is enforced, CORS is applied, traces are dropped, and accepted signals land in Loki. F004 MUST NOT couple its close-out to Mneme F012 actually sending telemetry; real end-to-end integration is F012's own Phase 2 gate. [D7]
 - **FR-58:** Every PR in this feature MUST satisfy the constitutional compliance checklist as amended by v1.3: pinned version, explicit `mem_limit`, **total within the relevant subsystem's cap (logs/RUM ≤ 500 MB)**, host ports declared in `docs/ports.md`, bind mounts documented. [Constitution v1.3: Governance §Compliance gates]
 
@@ -165,9 +165,9 @@ As Stellar, I want Mneme's backend logs (and every container's logs) and its fro
 ### Key Entities
 
 - **Loki** (`grafana/loki`, pinned): single-binary log-aggregation service. Filesystem store + TSDB shipper, schema v13, compactor retention 7d + size guard. Binds host ports 3100 (HTTP) and 3101 (gRPC, remapped into band). Writes chunks + index to a `/volume1` bind mount; runs as `1026:100`. `mem_limit` 200M. The logs counterpart to Prometheus.
-- **Alloy** (`grafana/alloy`, pinned): the collector. Components: `loki.source.docker` (container-log discovery via Docker socket), host-log source, `faro.receiver` (frontend RUM ingest on localhost:3111), and the `loki.write`/output wiring to Loki. UI on 3110. Writes WAL/positions to a `/volume1` bind mount; runs as `1026:100` (Docker-socket access mechanism resolved in `/plan`). `mem_limit` 250M.
-- **Faro receiver**: the `faro.receiver` component inside Alloy. Accepts logs/exceptions/events/measurements; traces output unwired (dropped). Bound to localhost; exposed to browsers only through the reverse proxy.
-- **Reverse proxy (nas-observability-owned)**: terminates TLS, checks the API key, sets CORS for Mneme's origin, forwards to the localhost Faro receiver. DSM-Application-Portal-vs-container placement resolved in `/plan`.
+- **Alloy** (`grafana/alloy`, pinned): the collector. Components: `loki.source.docker` (container-log discovery via Docker socket), host-log source, `faro.receiver` (frontend RUM ingest on host-interface :3111, HTTP), and the `loki.write`/output wiring to Loki. UI on 3110. Writes WAL/positions to a `/volume1` bind mount; runs as `1026:100` with `group_add` for socket access (Plan §D8). `mem_limit` 250M.
+- **Faro receiver**: the `faro.receiver` component inside Alloy. Accepts logs/exceptions/events/measurements; traces output unwired (dropped). Binds the **host interfaces** over **HTTP** (no TLS, no proxy — D5/T086); enforces API key + two-origin CORS natively (or via an HTTP Caddy if T087 forces it). Reachable directly on the host port via LAN and Tailscale.
+- **HTTP Caddy (conditional — only if T087 shows Alloy lacks native key/CORS)**: a minimal HTTP reverse proxy on host interfaces doing key-check + two-origin CORS + proxy to the receiver. **No TLS** (much smaller than a TLS-terminating proxy). Not needed if Alloy enforces natively.
 - **Loki datasource**: provisioned into the custom Grafana image at build time, `uid: loki`, URL `http://localhost:3100`. Sister to the existing `uid: prometheus` datasource.
 - **Faro contract block**: the F004 deliverable published into Mneme's `docs/observability.md` — endpoint, CORS origins, API-key handling, accepted-vs-dropped signals. The artifact that unparks F012.
 - **`docs/logs-setup.md`** (working name): NAS-side runbook for the logs/RUM subsystem — bind-mount pre-creation + `chown`, reverse-proxy setup, API-key generation, contract publication. Sister doc to `docs/snmp-setup.md` and `docs/mneme-setup.md`.
@@ -192,15 +192,25 @@ Single-binary mode is the obvious fit for a single-operator homelab (no microser
 
 Loki retention is **7 days** (vs. the metrics subsystem's 30-day Prometheus retention), enforced by the compactor with a size guard, whichever binds first. Logs are the stack's largest disk-consumption risk and single-operator debugging rarely looks back two weeks; 7d is the disciplined default, trivially amendable upward via constitution if needed. [Ruling #3]
 
-### D5. Faro receiver auth — reverse proxy enforces, placement deferred to `/plan`
+### D5. Faro receiver edge — HTTP, host interfaces, API key + two-origin CORS, no proxy *(resolved by T086, 2026-05-31)*
 
-The receiver binds localhost behind a **nas-observability-owned reverse proxy** that enforces **TLS + API key + CORS** (Alloy's native `faro.receiver` auth is limited; the proxy is the right enforcement layer). The contract — receiver-on-localhost, proxy-enforces-key/CORS, origins explicit and never `*` — is fixed in this spec. The **placement** — DSM's built-in Application Portal reverse proxy (no new container, documented runbook step) vs. an in-repo proxy container (fully declarative per Principle II, but costs RAM against the 500M cap and adds a port-table entry) — is deferred to `/plan`, which checks what DSM 7.3's Application Portal can actually enforce (key auth + CORS headers) before choosing. [Ruling #4, Q-answer]
+**Original assumption (pre-T086):** receiver on localhost behind a nas-observability-owned reverse proxy enforcing TLS + API key + CORS, with proxy placement deferred to `/plan`.
+
+**T086 resolution — the TLS-edge problem dissolved.** The operator's network reality: Mneme is served over **HTTP** (not HTTPS) on both paths — `http://192.168.0.8:8080` (LAN, Tailscale off) and `http://ds224plus.tailda1ab8.ts.net:8080` (Tailscale on). No public domain, no Let's Encrypt, free-tier Tailscale. Because the Mneme page is HTTP, a beacon POST to an HTTP receiver has **no mixed-content constraint and needs no TLS**. Host networking makes the receiver's host port answer on both the LAN IP and the Tailscale name automatically — **no reverse proxy is needed for reachability**.
+
+**Revised topology:**
+- **HTTP, no TLS** anywhere — no DSM Application Portal, no `tailscale cert`, no Caddy-for-TLS. The most complex part of the original D5 is eliminated.
+- **Receiver binds host interfaces, NOT localhost** — so LAN + Tailscale browsers reach it directly on the host port. This makes the receiver directly reachable by anything on the LAN or tailnet, **gated solely by the API key** (the key is the only layer, not a second one behind a proxy). Deliberate, documented posture — acceptable for a single-user trusted LAN+tailnet.
+- **CORS carries TWO origins** — `http://192.168.0.8:8080` and `http://ds224plus.tailda1ab8.ts.net:8080`, both explicit, never `*`. From env (plural / two vars), out of committed config.
+- **Encryption posture (documented):** telemetry is unencrypted at the app layer (HTTP). On the Tailscale path, WireGuard encrypts it at the network layer regardless; on the LAN path it's plaintext (own LAN, own logs, own NAS — fine at single-user scale). No end-to-end TLS, accepted deliberately.
+
+The only remaining open branch is **T087**: does the pinned Alloy `faro.receiver` enforce `api_key` + `cors_allowed_origins` natively (→ 2 containers) or not (→ a tiny **HTTP** Caddy doing key+CORS, no TLS, also on host interfaces)? Either way: no TLS, host-interface binding, two-origin CORS. [Ruling #4, Q-answer, T086]
 
 ### D6. Faro contract block — an F004 deliverable
 
-F004 produces the contract block that Mneme's F012 consumes, published into Mneme's `docs/observability.md`: endpoint (public proxy URL), CORS allowed-origins (Mneme's frontend origin), API-key handling, accepted-vs-dropped signal classes. This is **part of F004's done** — it is the thing that unparks F012. The exact contents are finalized in `/plan` once the proxy placement (D5) fixes the public URL. [Q-answer]
+F004 produces the contract block that Mneme's F012 consumes, published into Mneme's `docs/observability.md`: endpoints (the two host-interface HTTP URLs, with a recommended default), CORS allowed-origins (the two), API-key handling, accepted-vs-dropped signal classes. This is **part of F004's done** — it is the thing that unparks F012. The URL is known now (T086 resolved the edge); the contract can publish as soon as the receiver port is configured. [Q-answer, T086]
 
-**Timing dependency — the contract URL is gated on D5.** The single most consequential field, the endpoint URL, cannot be finalized until D5 (reverse-proxy placement) resolves in `/plan`, because placement determines the public URL Mneme posts to. So F012 does **not** fully unpark at F004-*merge*; it unparks at F004's contract-*publication*, which is post-D5-resolution. Until D5 resolves, Mneme F012 can only wire its SDK against a **placeholder** URL (everything else in the contract — key handling, CORS origin, accepted-vs-dropped signals — is fixed by this spec and stable). This keeps the cross-repo timing honest: F004-merge ships the receiver; F004-contract-publication (after D5) is what Mneme can finally point at.
+**Timing dependency — RESOLVED by T086, the URL is known now.** The original gating (endpoint URL waits on reverse-proxy placement) is gone: with no TLS edge, the receiver is reachable at `http://192.168.0.8:<receiver-port>` (LAN) and `http://ds224plus.tailda1ab8.ts.net:<receiver-port>` (Tailscale) as soon as the receiver port is chosen (3111). Both URLs are valid; F012 points its SDK at whichever origin matches how the browser loaded Mneme (the contract names a recommended default). The contract block can therefore publish as soon as the receiver is configured — no placeholder, no post-`/plan` wait. F004 still does not block on Mneme consuming it (Spec D7).
 
 ### D7. F012 coupling — producer ships first; F004 verifies itself
 
@@ -217,7 +227,7 @@ Alloy must both *write* WAL/positions to `/volume1` (→ run as `1026:100` per v
 
 ### D9. PR shape — single PR by default
 
-F004 ships as a single integrated PR by default: `docker-compose.logs.yml` (Loki + Alloy configs), the Grafana Loki-datasource bake, ports + docs, the reverse-proxy setup, and the synthetic-beacon verification. If the diff grows unwieldy, a natural split is (a) Loki + backend-log pipeline, (b) Faro receiver + reverse proxy + contract — judgment call at implementation time, not a pre-commitment. (Mirrors F003 D6.)
+F004 ships as a single integrated PR by default: `docker-compose.logs.yml` (Loki + Alloy configs), the Grafana Loki-datasource bake, ports + docs, the receiver exposure + secrets, and the synthetic-beacon verification. If the diff grows unwieldy, a natural split is (a) Loki + backend-log pipeline, (b) Faro receiver + contract — judgment call at implementation time, not a pre-commitment. (Mirrors F003 D6.)
 
 ---
 
@@ -229,7 +239,7 @@ This feature is complete when:
 2. Grafana shows both `uid: prometheus` and `uid: loki` datasources healthy; F001–F003 dashboards render unchanged after the image rebuild.
 3. Container logs (incl. Mneme's pino JSON) are queryable in Grafana → Explore → Loki, with no Mneme application-side change.
 4. Alloy does not crash-loop when Loki is down; it retries and resumes (verified by cycling Loki).
-5. The Faro receiver, behind the reverse proxy, accepts a keyed beacon from Mneme's allowed origin and rejects an unkeyed/wrong-origin one; CORS is enforced (never `*`).
+5. The Faro receiver (host-interface HTTP, no proxy) accepts a keyed beacon from either allowed origin and rejects an unkeyed/wrong-origin one; two-origin CORS is enforced (never `*`).
 6. A synthetic Faro beacon containing a trace confirms traces are **dropped** while logs/exceptions/measurements land in Loki — the APM-deferral seam is verified in code.
 7. Loki's on-disk footprint is bounded by 7-day retention + size guard.
 8. Loki and Alloy survive a down/up cycle without the DSM ACL restart-loop (or recover via the documented runbook); bind-mount paths are pre-created and `chown`ed.
@@ -253,7 +263,7 @@ Explicitly not required for this feature:
 - **Mneme application-side changes** — F004 needs none. Mneme's existing JSON-to-stdout logging is collected as-is; Mneme's F012 (Faro SDK adoption) is the *consumer* of F004's receiver and is owned by the Mneme work stream.
 - **Curated logs/RUM Grafana dashboards** — F004 ships the Loki datasource + Explore access; whether a minimal starter dashboard lands is a `/plan` call. Rich curated dashboards are follow-up work.
 - **External object storage for Loki** (S3/MinIO) — filesystem store only (D3). Not justified at single-operator scale.
-- **Multi-tenancy / auth inside Loki** — single-operator; Loki runs in single-tenant mode behind the host firewall. (The Faro receiver's browser-facing surface is the only externally reachable endpoint, and it's protected by the reverse proxy.)
+- **Multi-tenancy / auth inside Loki** — single-operator; Loki runs in single-tenant mode behind the host firewall. (The Faro receiver's browser-facing surface is the only LAN/tailnet-reachable endpoint, and it's gated by the API key + two-origin CORS — D5/T086.)
 - **Replacing Promtail** — not applicable; F004 uses Alloy from the start (Promtail is EOL; Alloy provides collector + Faro receiver in one binary). [Ruling #8]
 - **Multi-arch Grafana image / Walkgen snmp.yml** — F002/F003 carry-overs, still deferred per their own trigger criteria.
 
@@ -264,10 +274,10 @@ Explicitly not required for this feature:
 When this feature is planned, `plan.md` resolves the following (explicitly deferred from this spec):
 
 - **Image version pins.** Verify `grafana/loki:<tag>` and `grafana/alloy:<tag>` exist via `docker manifest inspect` at plan time (F001's lesson: upstream tag assumptions occasionally lie). Pin both with semver.
-- **Reverse-proxy placement (D5).** Check what DSM 7.3's Application Portal reverse proxy can enforce (custom auth header / API key, CORS response headers). If it can, prefer it (no RAM cost, runbook step). If it can't, add a minimal in-repo proxy container (and account for its `mem_limit` against the 500M cap + a port-table entry). Decide and document.
+- **Faro edge (D5) — RESOLVED by T086, no longer a `/plan` item.** No TLS, no reverse proxy: HTTP receiver on host interfaces, two-origin CORS, API key as sole gate. The only residual branch is **T087** (native Alloy `api_key`/CORS → 2 containers, else a tiny HTTP Caddy doing key+CORS, no TLS). `/plan` no longer chooses a proxy placement.
 - **Alloy Docker-socket access (D8).** Resolve `group_add` docker GID vs. socket-proxy sidecar vs. direct container-log-path read, on DSM 7.3 specifically. Confirm Alloy can read container logs while running as `1026:100`.
 - **Loki config.** Exact `loki-config.yaml`: single-binary, filesystem paths under `/volume1`, TSDB shipper, schema v13 `from:` date, compactor retention 7d + `retention_enabled: true`, size guard value (set against expected volume), gRPC port remapped to 3101.
-- **Alloy config.** Exact `config.alloy`: `loki.source.docker` (with the D8 socket mechanism), host-log source, `faro.receiver` on localhost:3111 with logs-only output (traces unwired — FR-49/Scenario 6), `loki.write` to localhost:3100, UI on 3110.
+- **Alloy config.** Exact `config.alloy`: `loki.source.docker` (with the D8 socket mechanism), host-log source, `faro.receiver` on **host-interface** :3111 (HTTP, NOT localhost) with two-origin CORS + `api_key` via `sys.env`, logs-only output (traces unwired — FR-49/Scenario 6), `loki.write` to localhost:3100, UI on 3110.
 - **Bind-mount paths + init runbook.** Decide `/volume1/...` paths for Loki (chunks/index) and Alloy (WAL/positions); pre-create + `chown 1026:100`; document the DSM ACL restart-loop recovery (memory `project_dsm_acl_recovery`).
 - **Synthetic beacon (FR-57).** How F004 generates it — a `curl` with a hand-built Faro-format JSON payload, or Faro's own test tooling. Define the payload (a log + exception + measurement + a trace, to prove the drop) and the Loki queries that confirm landing.
 - **Contract block contents (FR-56/D6).** Finalize once D5 fixes the public URL: endpoint, CORS origin(s), API-key header name + handling, accepted-vs-dropped signal classes. Coordinate the drop into Mneme's `docs/observability.md`.
