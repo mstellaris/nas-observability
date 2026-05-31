@@ -105,6 +105,13 @@ curl -fsS http://localhost:3110/-/ready         # -> OK
 ports in use, bind-mount ownership). Loki disk usage is the standalone `du`
 check below (§Loki disk-watch).
 
+> **Synthetic beacons land as `service_name="unknown_service"`.** A hand-built
+> verification beacon (the T101 key/CORS/trace-drop/landing check) carries no
+> Faro `app` meta block, so Loki labels it `unknown_service` — expected, not a
+> bug. Real Mneme frontend telemetry carries `app: { name: 'mneme-frontend' }`,
+> so it lands under that name. Query synthetic test signals by their payload
+> body (e.g. a `faro-verify-*` marker), not by `service_name`.
+
 ---
 
 ## Receiver posture (deliberate — read this)
@@ -151,6 +158,48 @@ du -sh /volume1/docker/observability/loki/data
 If it grows uncomfortably before 7-day retention reclaims it, the lever is to
 **shorten retention** (`retention_period` in `loki-config.yaml`, re-fetch via
 `init-nas-paths.sh`, restart Loki) — there is no byte cap that auto-trims.
+
+---
+
+## Retention-deletion verification (one-time — T102)
+
+The 7-day time retention is automatic, but a 24h observation can't *prove*
+deletion fires (nothing is 7 days old yet). This short-retention test proves
+the compactor actually deletes, in minutes. **It's transient** — the config is
+restored from `main` afterward, so the NAS ends in its normal state.
+
+1. **Shrink the windows** on the host config so deletion happens fast. Edit
+   `/volume1/docker/observability/loki/loki-config.yaml`:
+   - `retention_period: 168h` → `1h`
+   - `compactor.compaction_interval: 10m` → `1m`
+   - `compactor.retention_delete_delay: 2h` → `1m`
+   Leave `reject_old_samples_max_age: 168h` alone (so the back-dated push below
+   is still accepted). Restart Loki.
+2. **Push a back-dated line** — older than the 1h retention but within the 168h
+   reject window, so it's accepted *and* immediately eligible for deletion:
+   ```bash
+   TS=$(( ($(date +%s) - 7200) * 1000000000 ))   # 2 hours ago, in nanoseconds
+   curl -fsS -H 'Content-Type: application/json' \
+     "http://localhost:3100/loki/api/v1/push" \
+     -d '{"streams":[{"stream":{"job":"retention-test"},"values":[["'"$TS"'","retention-test-marker"]]}]}'
+   ```
+   Confirm it landed (query a wide range and grep for the marker).
+3. **Wait a few compaction cycles** (~3–5 min). Confirm deletion: the same
+   query now returns nothing for that range, and `docker logs loki` shows the
+   compactor's delete activity.
+4. **Restore from `main`** — re-fetch the canonical config (resets all three
+   values), then restart Loki:
+   ```bash
+   sudo bash scripts/init-nas-paths.sh   # re-curls loki-config.yaml from main
+   ```
+5. **Restore-verify (the footgun).** A botched restore silently ships 1h
+   retention. Grep the running host config for all three restored values:
+   ```bash
+   grep -E 'retention_period: 168h|compaction_interval: 10m|retention_delete_delay: 2h' \
+     /volume1/docker/observability/loki/loki-config.yaml
+   ```
+   All three lines must print. If any is missing, the restore didn't land —
+   re-run step 4 before walking away.
 
 ---
 

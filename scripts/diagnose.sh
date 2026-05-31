@@ -213,6 +213,18 @@ section_bind_mounts() {
         "$C_WARN" "$C_RESET"
     fi
   fi
+
+  # Loki disk-watch (logs/RUM). Loki has no automatic byte-cap — only 7-day
+  # time retention — so its on-disk footprint is the operator's signal to watch.
+  # Informational (no threshold/exit-code); if it grows uncomfortably the lever
+  # is shortening retention (see docs/logs-setup.md §Loki disk-watch).
+  local loki_data="${BASE}/loki/data"
+  if [ -d "$loki_data" ]; then
+    local loki_sz
+    loki_sz=$(du -sh "$loki_data" 2>/dev/null | awk '{print $1}')
+    printf '  %sLoki log store%s  %-44s %s  %s(7d retention; no auto size cap)%s\n' \
+      "$C_DIM" "$C_RESET" "$loki_data" "${loki_sz:-?}" "$C_DIM" "$C_RESET"
+  fi
   echo
 }
 
