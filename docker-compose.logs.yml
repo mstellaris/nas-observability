@@ -58,13 +58,25 @@ services:
     command:
       - run
       - /etc/alloy/config.alloy
-      - --storage.path=/var/lib/alloy/data
+      # storage.path is the MOUNT ROOT (/var/lib/alloy), not a child of it.
+      # Alloy's remotecfg service, the loki.write WAL, and file-source
+      # positions all mkdir working dirs under storage.path — which requires a
+      # writable PARENT. A leaf-only mount (…/data:/var/lib/alloy/data) gives
+      # us the leaf but leaves /var/lib/alloy root-owned, so the mkdir fails
+      # with EACCES and Alloy crash-loops. Mounting the 1026:100 host dir AS
+      # /var/lib/alloy gives Alloy a writable root to create everything under.
+      - --storage.path=/var/lib/alloy
       # Remap Alloy's own UI/HTTP server off its default :12345 to :3110 so it
       # stays inside the 3100–3199 logs/RUM band (Constitution v1.3 / ports.md).
       - --server.http.listen-addr=0.0.0.0:3110
     volumes:
       - /volume1/docker/observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
-      - /volume1/docker/observability/alloy/data:/var/lib/alloy/data
+      # State: host …/alloy/data → container /var/lib/alloy (the mount root,
+      # owned 1026:100). Config lives at the sibling /etc/alloy path, so this
+      # state mount holds ONLY Alloy's working data — no config masking, and a
+      # writable parent for remotecfg/WAL/positions. Host dir unchanged from
+      # F004 (still …/alloy/data), only the container target moved up a level.
+      - /volume1/docker/observability/alloy/data:/var/lib/alloy
       # Docker socket, read-only — API-based loki.source.docker streams
       # container logs over it. No container-log-path mount (API method, not
       # file-tailing — Plan §D8).
