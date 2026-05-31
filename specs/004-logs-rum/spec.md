@@ -49,10 +49,12 @@ As Stellar, I want Mneme's backend logs (and every container's logs) and its fro
 **Scenario 2: Container logs flow to Loki via Docker discovery**
 
 **Given** Loki and Alloy are running, and Alloy's `loki.source.docker` is reading the Docker socket
-**When** the operator opens Grafana → Explore → Loki datasource and queries `{container="mneme-api-1"}` (or the relevant Mneme container name)
+**When** the operator opens Grafana → Explore → Loki datasource and queries for the Mneme API container's logs (e.g. `{container="mneme-api-1"}`)
 **Then** Mneme's pino JSON log lines appear, parsed, with recent timestamps
-**And** `{container=~".+"}` returns log streams for every running container including the observability stack's own services
+**And** an all-streams query returns log streams for every running container including the observability stack's own services
 **And** the JSON fields (level, msg, etc.) are queryable as Loki labels or via `| json` parsing
+
+> **Label schema is `/plan`-resolved; query strings here are illustrative.** The label *key* (`container` vs `container_name` vs `instance` vs a custom relabel) is an Alloy `loki.source.docker` discovery/relabeling config detail decided in `/plan`, not a given. The *value* (`mneme-api-1`) tracks Docker's container name. Acceptance is "Mneme's logs are queryable by container in Grafana," NOT a literal match on the label key — the scenario must not fail on a cosmetic label-name difference. `/plan` fixes the canonical label schema and the docs reflect it.
 
 **Scenario 3: Alloy retries gracefully when Loki is unavailable**
 
@@ -101,6 +103,7 @@ As Stellar, I want Mneme's backend logs (and every container's logs) and its fro
 **When** logs older than 7 days exist (or the size guard is approached)
 **Then** the compactor deletes expired chunks/index on its schedule
 **And** Loki's on-disk footprint under `/volume1` stays bounded — it does not grow unbounded the way an un-retained log store would
+**And** this is verified by a **short-retention test** (temporarily set retention to ~1h, confirm deletion fires, restore 7d) — NOT by the 24h observation, in which a 7-day compactor structurally cannot fire (see *Notes for `/plan`* §phase-8)
 
 **Scenario 9: Bind-mount permissions survive a redeploy (DSM constraints)**
 
@@ -197,6 +200,8 @@ The receiver binds localhost behind a **nas-observability-owned reverse proxy** 
 
 F004 produces the contract block that Mneme's F012 consumes, published into Mneme's `docs/observability.md`: endpoint (public proxy URL), CORS allowed-origins (Mneme's frontend origin), API-key handling, accepted-vs-dropped signal classes. This is **part of F004's done** — it is the thing that unparks F012. The exact contents are finalized in `/plan` once the proxy placement (D5) fixes the public URL. [Q-answer]
 
+**Timing dependency — the contract URL is gated on D5.** The single most consequential field, the endpoint URL, cannot be finalized until D5 (reverse-proxy placement) resolves in `/plan`, because placement determines the public URL Mneme posts to. So F012 does **not** fully unpark at F004-*merge*; it unparks at F004's contract-*publication*, which is post-D5-resolution. Until D5 resolves, Mneme F012 can only wire its SDK against a **placeholder** URL (everything else in the contract — key handling, CORS origin, accepted-vs-dropped signals — is fixed by this spec and stable). This keeps the cross-repo timing honest: F004-merge ships the receiver; F004-contract-publication (after D5) is what Mneme can finally point at.
+
 ### D7. F012 coupling — producer ships first; F004 verifies itself
 
 Two distinct gates, deliberately separated:
@@ -270,4 +275,14 @@ When this feature is planned, `plan.md` resolves the following (explicitly defer
 - **Starter dashboard?** Decide whether a minimal logs/RUM Explore-saved or starter dashboard ships in F004 or defers.
 - **`.env.example` + Secrets.** Add the Faro API key (and any reverse-proxy secret) to `.env.example`.
 
-`tasks.md` will decompose into phases mirroring F002/F003 but for F004's scope: (1) Loki config + deploy + retention verification; (2) Alloy backend-log pipeline (Docker-socket mechanism per D8) + verify container logs in Loki; (3) Grafana Loki-datasource bake + rebuild + no-regression check; (4) Faro receiver config (logs-only, traces dropped) + reverse-proxy setup (per D5) + API key/CORS; (5) synthetic-beacon verification (FR-57 — key/CORS/trace-drop/landing); (6) publish the Faro contract block into Mneme's `docs/observability.md` (FR-56 — the F012-unparking artifact); (7) DS224+ deploy + acceptance walk-through; (8) stability observation over **24 hours** matching F002/F003 discipline (new behavior — log ingestion volume + Faro receiver under real container-log load — needs a full diurnal window to characterize, especially disk growth vs. the size guard).
+`tasks.md` will decompose into phases mirroring F002/F003 but for F004's scope: (1) Loki config + deploy; (2) Alloy backend-log pipeline (Docker-socket mechanism per D8) + verify container logs in Loki; (3) Grafana Loki-datasource bake + rebuild + no-regression check; (4) Faro receiver config (logs-only, traces dropped) + reverse-proxy setup (per D5) + API key/CORS; (5) synthetic-beacon verification (FR-57 — key/CORS/trace-drop/landing); (6) publish the Faro contract block into Mneme's `docs/observability.md` (FR-56 — the F012-unparking artifact); (7) DS224+ deploy + acceptance walk-through; (8) stability observation over **24 hours** matching F002/F003 discipline.
+
+**The phase-8 observation characterizes two things, and explicitly NOT a third:**
+- ✅ **Ingestion stability** — Alloy keeps up with real container-log load, the Faro receiver stays responsive, no crash-loop, no memory creep against the 500M cap. The diurnal argument (Mneme day/night usage, Hyper Backup, scheduled jobs) holds, same as F003.
+- ✅ **Disk growth *rate*** — measure the rate over 24h and extrapolate ("will 7 days of logs fit under the size guard?"). Extrapolation, not observation of the steady state.
+- ❌ **NOT retention-deletion.** The compactor's 7-day deletion CANNOT fire in a 24h window — nothing is 7 days old yet, so 24h shows monotonic growth with zero deletion. The 24h observation says nothing about whether deletion works.
+
+**Retention-deletion (Scenario 8 / FR-47) is verified SEPARATELY**, not by the 24h window:
+- **Short-retention test:** temporarily set Loki retention to ~1h, ingest, confirm the compactor deletes expired chunks/index on schedule, then restore 7d. This proves the deletion mechanism is wired and fires.
+- **OR a size-guard trip:** if log volume is high enough to bind the size guard within the window, that confirms the size-guard path. (Less reliable — volume-dependent; the short-retention test is the deterministic check.)
+- `/plan` picks the mechanism and adds it as its own task, distinct from the 24h observation.
