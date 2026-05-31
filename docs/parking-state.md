@@ -4,6 +4,37 @@ Snapshot of the project state when a working session is paused. Append a new top
 
 ---
 
+## 2026-05-31 — Un-park for F004 (logs + RUM)
+
+### Event
+Un-parked. The "concrete consumer" resume criterion fired — but as a **category expansion**, not the scrape-and-dashboard consumer the 2026-04-26 entry anticipated.
+
+### What arrived
+**Mneme's F012** adopts the Faro Web SDK in its frontend and is parked at its cross-repo verification gate awaiting a live Faro receiver. This forces nas-observability into a logs + RUM subsystem: Grafana Loki (log aggregation) + Grafana Alloy (collector + Faro receiver) + Faro frontend RUM. Backend logs (Mneme pino JSON + container/host) flow Alloy → Loki; frontend telemetry flows Faro SDK → Alloy's Faro receiver → Loki; everything visualizes in the existing Grafana.
+
+### Feature numbering (supersedes the 2026-04-26 earmark)
+The 2026-04-26 entry loosely earmarked **F004 for a future GlitchTip/Bugsink APM consumer**. That earmark is **stale**: logs/RUM arrived first and is the active work. Corrected numbering:
+- **F004 = logs + RUM** (Loki + Alloy + Faro receiver). Active.
+- **APM (GlitchTip/Bugsink), if ever = F005+.** Still contingent on Mneme's APM decision and a NAS deployment; no longer holds the F004 slot.
+
+### Constitutional sequencing
+This is a scope expansion the v1.2 constitution contradicts (metrics-only framing, Principle IV's single 600 MB / 30-day envelope, the dashboard-coverage line), so it follows the v1.1/v1.2 pattern: **amend first, ratify, then `/specify`**. Constitution bumped **v1.2.0 → v1.3.0** (MINOR — broadened to metrics + logs + RUM; two-subsystem budgets, metrics ≤ 600 MB / 30d and logs/RUM ≤ 500 MB / 7d; new `3100–3199` port range; APM/Tempo still deferred with trace-dropping enforced in code). Amendment drafted on branch `docs/constitution-v1.3-logs-rum`, held for operator review before ratification.
+
+### Scoping decisions ruled (pre-spec)
+1. Logs/RUM budget ≤ 500 MB (Loki 200 / Alloy 250 / 50 headroom), separate subsystem cap, amendable-upward discipline tripwire.
+2. Two compose files — `docker-compose.yml` (metrics, unchanged) + `docker-compose.logs.yml` (Loki + Alloy); Grafana stays in metrics file, gains a Loki datasource (`uid: loki`); Alloy must retry gracefully if Loki is down (no crash-loop).
+3. Loki single-binary, filesystem + TSDB shipper, schema v13, compactor retention **7 days** + size guard.
+4. Faro receiver auth: reverse proxy enforces TLS + API key + CORS (origins explicit, never `*`); Alloy binds localhost behind it; enforcing proxy is **nas-observability-owned** (final placement an explicit F004 decision; determines the contract URL in Mneme's `docs/observability.md`).
+5. Ports: `3100–3199` logs/RUM range; Alloy UI + Faro receiver remapped off the 12345 default.
+6. Traces dropped at the receiver — logs/exceptions/events/measurements only; Tempo-deferral enforced in code; future feature flips the receiver to forward.
+7. Numbering as above (F004 = logs/RUM).
+8. Alloy over Promtail (Promtail EOL; Alloy gives collector + Faro receiver in one binary).
+
+### Next steps
+After v1.3 ratifies: F004 `/specify` citing the amended constitution. F004 defines + deploys the Faro receiver, which unblocks Mneme F012's final phase.
+
+---
+
 ## 2026-04-26 — Post-F003 close-out
 
 ### Date paused

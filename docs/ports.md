@@ -11,6 +11,7 @@ Adding a new service picks a port from within an existing range — never invent
 | Range       | Purpose                                          |
 |-------------|--------------------------------------------------|
 | 3000–3099   | UI services (Grafana and any future user-facing UIs) |
+| 3100–3199   | Logs/RUM subsystem (Loki, Alloy collector + Faro receiver) |
 | 8080–8099   | Container and exporter UIs (cAdvisor, etc.)      |
 | 9090–9099   | Prometheus core and adjacent services            |
 | 9100–9199   | Prometheus-ecosystem exporters                   |
@@ -31,6 +32,11 @@ Adding a new service picks a port from within an existing range — never invent
 | Port   | Service                  | Range     | Feature    |
 |--------|--------------------------|-----------|------------|
 | 9093   | Alertmanager             | 9090–9099 | Alerting (TBD) |
+| 3100   | Loki (HTTP)              | 3100–3199 | F004 (logs/RUM) |
+| 3110   | Alloy UI                 | 3100–3199 | F004 (logs/RUM) — remapped off upstream default 12345 |
+| 3111   | Alloy Faro receiver      | 3100–3199 | F004 (logs/RUM) — binds localhost behind the reverse proxy; remapped off upstream default 12345 |
+
+Loki anchors the `3100–3199` band at its upstream default (3100); Alloy's UI and Faro receiver are remapped into the band (their upstream defaults — 12345 — fall outside every range and are arbitrary behind the proxy). These port numbers are pencilled here and finalized in F004's spec; when the feature lands they move into "Current assignments".
 
 When these features land, they update the table above (moving the reservation into "Current assignments") rather than adding a new entry.
 
