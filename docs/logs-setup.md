@@ -189,3 +189,10 @@ verification (Mneme's frontend telemetry landing in Loki) is F012's own gate.
   correctly and the `/var/lib/alloy/data` mount is writable (`1026:100`).
 - **`loki/data` restart loop after redeploy:** DSM ACLs — run the
   `synoacltool -del` + `chown` recovery in Step 1.
+- **Alloy crash-loop: `mkdir /var/lib/alloy/...: permission denied`:** a
+  storage mount must give Alloy a writable *parent*, not just a leaf dir.
+  `docker-compose.logs.yml` mounts the `1026:100` host dir as `/var/lib/alloy`
+  (the mount root) and sets `--storage.path=/var/lib/alloy` so Alloy's
+  remotecfg/WAL/positions can `mkdir` under it. If you change this to a
+  leaf-only mount (`…/data:/var/lib/alloy/data`), `/var/lib/alloy` reverts to
+  root-owned and Alloy can't create its working dirs — keep the parent mount.
