@@ -1,0 +1,543 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Exceptions & Errors",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Total Exceptions (range)",
+      "description": "Echo-dedup: excludes Faro captureConsole's echo, which is kind=exception (SAME kind as the real error) with value prefixed 'console.error:'. Do NOT replace `!= \"console.error:\"` with a kind or detected_level filter — the echo shares the kind, and detected_level is a Loki heuristic, not a contract. The 'console.error:' value-prefix is the only deterministic separator (verified 0 false-matches over 7d). See specs/005 spec.md D2.",
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 1},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "sum(count_over_time({service_name=\"mneme-frontend\"} |= \"kind=exception\" != \"console.error:\" [$__range]))",
+          "queryType": "instant",
+          "legendFormat": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0 — no frontend exceptions in range (healthy)",
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1},
+              {"color": "red", "value": 25}
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Exception Rate (deduped)",
+      "description": "Echo-dedup via the 'console.error:' value-prefix exclusion (see Total Exceptions panel). NOT a kind/detected_level filter. spec.md D2.",
+      "gridPos": {"h": 6, "w": 18, "x": 6, "y": 1},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "sum(count_over_time({service_name=\"mneme-frontend\"} |= \"kind=exception\" != \"console.error:\" [$__auto]))",
+          "queryType": "range",
+          "legendFormat": "exceptions"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {"mode": "fixed", "fixedColor": "red"},
+          "custom": {
+            "drawStyle": "bars",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 60,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom", "calcs": [], "showLegend": false},
+        "tooltip": {"mode": "single", "sort": "none"}
+      }
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Top Exception Messages (deduped)",
+      "description": "Echo-dedup via the 'console.error:' value-prefix exclusion before `| logfmt` (see Total Exceptions panel). NOT a kind/detected_level filter. spec.md D2.",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 7},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "topk(10, sum by (value) (count_over_time({service_name=\"mneme-frontend\"} |= \"kind=exception\" != \"console.error:\" | logfmt [$__range])))",
+          "queryType": "instant",
+          "legendFormat": "",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {"align": "auto", "cellOptions": {"type": "auto"}, "inspect": false},
+          "noValue": "No frontend exceptions in range (healthy)"
+        },
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "Value"}, "properties": [{"id": "custom.width", "value": 90}, {"id": "displayName", "value": "count"}]}
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{"displayName": "count", "desc": true}]
+      },
+      "transformations": [
+        {"id": "labelsToFields", "options": {"mode": "columns"}},
+        {"id": "organize", "options": {"excludeByName": {"Time": true}, "renameByName": {"value": "exception"}}}
+      ]
+    },
+    {
+      "id": 5,
+      "type": "logs",
+      "title": "React Error-Boundary Errors (componentStack)",
+      "description": "Boundary errors only: context_source=react_boundary. Echo-SAFE by construction — Faro's console.error echo carries NO context_source, so no dedup filter is needed here (unlike the count panels). Surfaces context_componentStack. spec.md A4.",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 7},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "{service_name=\"mneme-frontend\"} | logfmt | context_source=\"react_boundary\"",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {"defaults": {"noValue": "No React error-boundary errors in range (healthy)"}, "overrides": []},
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 6,
+      "type": "logs",
+      "title": "Exception Detail (deduped — minified stacks)",
+      "description": "Echo-dedup via the 'console.error:' value-prefix exclusion (see Total Exceptions panel). Stacks are MINIFIED/unsymbolicated (e.g. index-*.js:line:col) — source-map symbolication is a deferred future feature (FR-66). spec.md D2.",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 15},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "{service_name=\"mneme-frontend\"} |= \"kind=exception\" != \"console.error:\"",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {"defaults": {"noValue": "No frontend exceptions in range (healthy)"}, "overrides": []},
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 7,
+      "type": "text",
+      "title": "",
+      "gridPos": {"h": 2, "w": 24, "x": 0, "y": 23},
+      "options": {
+        "mode": "markdown",
+        "content": "**Note:** Exception stacks above are **minified / unsymbolicated** (frames reference bundled assets like `index-jQk4oDYt.js:29:53618`). Source-map symbolication is a deferred future feature — frames are intentionally not human-readable yet. Counts exclude Faro's `console.error:` echo (see panel descriptions / spec.md D2)."
+      }
+    },
+    {
+      "id": 10,
+      "type": "row",
+      "title": "Web Vitals (p75)",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 25},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "LCP p75 (Largest Contentful Paint)",
+      "description": "Full-precision value_lcp field (NOT the rounded bare 'lcp'). Standard Core Web Vitals thresholds in ms: good <2500, poor >=4000.",
+      "gridPos": {"h": 6, "w": 8, "x": 0, "y": 26},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "quantile_over_time(0.75, {service_name=\"mneme-frontend\"} | logfmt | value_lcp != \"\" | unwrap value_lcp [$__auto])",
+          "queryType": "range",
+          "legendFormat": "LCP p75"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0,
+          "noValue": "No LCP samples in range",
+          "color": {"mode": "thresholds"},
+          "custom": {
+            "drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 2,
+            "fillOpacity": 10, "spanNulls": true, "showPoints": "auto",
+            "thresholdsStyle": {"mode": "dashed"}
+          },
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "yellow", "value": 2500},
+            {"color": "red", "value": 4000}
+          ]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom", "calcs": ["lastNotNull"], "showLegend": true},
+        "tooltip": {"mode": "single", "sort": "none"}
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "INP p75 (Interaction to Next Paint)",
+      "description": "Full-precision value_inp field. Standard CWV thresholds in ms: good <200, poor >=500.",
+      "gridPos": {"h": 6, "w": 8, "x": 8, "y": 26},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "quantile_over_time(0.75, {service_name=\"mneme-frontend\"} | logfmt | value_inp != \"\" | unwrap value_inp [$__auto])",
+          "queryType": "range",
+          "legendFormat": "INP p75"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0,
+          "noValue": "No INP samples in range",
+          "color": {"mode": "thresholds"},
+          "custom": {
+            "drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 2,
+            "fillOpacity": 10, "spanNulls": true, "showPoints": "auto",
+            "thresholdsStyle": {"mode": "dashed"}
+          },
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "yellow", "value": 200},
+            {"color": "red", "value": 500}
+          ]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom", "calcs": ["lastNotNull"], "showLegend": true},
+        "tooltip": {"mode": "single", "sort": "none"}
+      }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "CLS p75 (Cumulative Layout Shift)",
+      "description": "Full-precision value_cls field (unitless). Standard CWV thresholds: good <0.1, poor >=0.25.",
+      "gridPos": {"h": 6, "w": 8, "x": 16, "y": 26},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "quantile_over_time(0.75, {service_name=\"mneme-frontend\"} | logfmt | value_cls != \"\" | unwrap value_cls [$__auto])",
+          "queryType": "range",
+          "legendFormat": "CLS p75"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 3,
+          "min": 0,
+          "noValue": "No CLS samples in range",
+          "color": {"mode": "thresholds"},
+          "custom": {
+            "drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 2,
+            "fillOpacity": 10, "spanNulls": true, "showPoints": "auto",
+            "thresholdsStyle": {"mode": "dashed"}
+          },
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "yellow", "value": 0.1},
+            {"color": "red", "value": 0.25}
+          ]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom", "calcs": ["lastNotNull"], "showLegend": true},
+        "tooltip": {"mode": "single", "sort": "none"}
+      }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "FCP p75 (First Contentful Paint)",
+      "description": "Full-precision value_fcp field. Standard CWV thresholds in ms: good <1800, poor >=3000.",
+      "gridPos": {"h": 6, "w": 8, "x": 0, "y": 32},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "quantile_over_time(0.75, {service_name=\"mneme-frontend\"} | logfmt | value_fcp != \"\" | unwrap value_fcp [$__auto])",
+          "queryType": "range",
+          "legendFormat": "FCP p75"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0,
+          "noValue": "No FCP samples in range",
+          "color": {"mode": "thresholds"},
+          "custom": {
+            "drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 2,
+            "fillOpacity": 10, "spanNulls": true, "showPoints": "auto",
+            "thresholdsStyle": {"mode": "dashed"}
+          },
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "yellow", "value": 1800},
+            {"color": "red", "value": 3000}
+          ]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom", "calcs": ["lastNotNull"], "showLegend": true},
+        "tooltip": {"mode": "single", "sort": "none"}
+      }
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "TTFB p75 (Time to First Byte)",
+      "description": "Full-precision value_ttfb field — the STANDALONE TTFB metric, NOT value_time_to_first_byte (which is the TTFB sub-part inside LCP attribution). Standard CWV thresholds in ms: good <800, poor >=1800.",
+      "gridPos": {"h": 6, "w": 8, "x": 8, "y": 32},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "quantile_over_time(0.75, {service_name=\"mneme-frontend\"} | logfmt | value_ttfb != \"\" | unwrap value_ttfb [$__auto])",
+          "queryType": "range",
+          "legendFormat": "TTFB p75"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0,
+          "noValue": "No TTFB samples in range",
+          "color": {"mode": "thresholds"},
+          "custom": {
+            "drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 2,
+            "fillOpacity": 10, "spanNulls": true, "showPoints": "auto",
+            "thresholdsStyle": {"mode": "dashed"}
+          },
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "yellow", "value": 800},
+            {"color": "red", "value": 1800}
+          ]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom", "calcs": ["lastNotNull"], "showLegend": true},
+        "tooltip": {"mode": "single", "sort": "none"}
+      }
+    },
+    {
+      "id": 16,
+      "type": "text",
+      "title": "Core Web Vitals — thresholds",
+      "gridPos": {"h": 6, "w": 8, "x": 16, "y": 32},
+      "options": {
+        "mode": "markdown",
+        "content": "**p75, official CWV bands** (data is in **ms**; CLS unitless):\n\n| Vital | Good | Poor |\n|---|---|---|\n| LCP | <2.5s | ≥4s |\n| INP | <200ms | ≥500ms |\n| CLS | <0.1 | ≥0.25 |\n| FCP | <1.8s | ≥3s |\n| TTFB | <800ms | ≥1.8s |\n\nGreen = good, yellow = needs-improvement, red = poor. Fields are the full-precision `value_*` (not the rounded bare names)."
+      }
+    },
+    {
+      "id": 20,
+      "type": "row",
+      "title": "Sessions & Navigation",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 38},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 21,
+      "type": "stat",
+      "title": "Sessions Started (range)",
+      "description": "kind=event, event_name=session_start (confirmed discriminator; sibling of session_extend).",
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 39},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "sum(count_over_time({service_name=\"mneme-frontend\"} | logfmt | event_name=\"session_start\" [$__range]))",
+          "queryType": "instant",
+          "legendFormat": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short", "decimals": 0,
+          "noValue": "0",
+          "color": {"mode": "fixed", "fixedColor": "blue"},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value", "graphMode": "area", "justifyMode": "center", "textMode": "value",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}
+      }
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Session Starts Over Time",
+      "gridPos": {"h": 6, "w": 18, "x": 6, "y": 39},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "sum(count_over_time({service_name=\"mneme-frontend\"} | logfmt | event_name=\"session_start\" [$__auto]))",
+          "queryType": "range",
+          "legendFormat": "session starts"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short", "min": 0,
+          "color": {"mode": "fixed", "fixedColor": "blue"},
+          "custom": {"drawStyle": "bars", "lineWidth": 1, "fillOpacity": 50, "spanNulls": false, "showPoints": "never"}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom", "calcs": [], "showLegend": false},
+        "tooltip": {"mode": "single", "sort": "none"}
+      }
+    },
+    {
+      "id": 23,
+      "type": "table",
+      "title": "Navigation by Page (top 10)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 45},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "topk(10, sum by (page_url) (count_over_time({service_name=\"mneme-frontend\"} | logfmt | event_name=\"faro.performance.navigation\" [$__range])))",
+          "queryType": "instant",
+          "legendFormat": "",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"custom": {"align": "auto", "cellOptions": {"type": "auto"}}, "noValue": "No navigation events in range"},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "Value"}, "properties": [{"id": "custom.width", "value": 90}, {"id": "displayName", "value": "count"}]}
+        ]
+      },
+      "options": {"showHeader": true, "sortBy": [{"displayName": "count", "desc": true}]},
+      "transformations": [
+        {"id": "labelsToFields", "options": {"mode": "columns"}},
+        {"id": "organize", "options": {"excludeByName": {"Time": true}, "renameByName": {"page_url": "page"}}}
+      ]
+    },
+    {
+      "id": 24,
+      "type": "piechart",
+      "title": "Browser Breakdown (by session)",
+      "description": "Counts one signal per session (event_name=session_start) so proportions reflect browsers-per-session, NOT total beacon volume (every beacon carries browser_name, dominated by resource-timing events).",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 45},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "sum by (browser_name) (count_over_time({service_name=\"mneme-frontend\"} | logfmt | event_name=\"session_start\" [$__range]))",
+          "queryType": "instant",
+          "legendFormat": "{{browser_name}}"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "noValue": "No browser data in range", "color": {"mode": "palette-classic"}}, "overrides": []},
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "pieType": "donut",
+        "legend": {"displayMode": "list", "placement": "right", "showLegend": true, "values": ["value"]},
+        "tooltip": {"mode": "single", "sort": "none"}
+      }
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["mneme", "frontend"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Mneme — Frontend",
+  "uid": "mneme-frontend",
+  "version": 1,
+  "weekStart": ""
+}
