@@ -1,0 +1,277 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Summary (all backend)",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Log Volume by Level (api + worker)",
+      "description": "pino emits NUMERIC levels (30=info, 40=warn, 50=error, 60=fatal). Value mappings below render them in words. Postgres is excluded here — it is plain text, not pino JSON (see Postgres row).",
+      "gridPos": {"h": 8, "w": 16, "x": 0, "y": 1},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "sum by (level) (count_over_time({service_name=~\"mneme-(api|worker)-1\"} | json [$__auto]))",
+          "queryType": "range",
+          "legendFormat": "level {{level}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 2,
+            "fillOpacity": 20, "spanNulls": false, "showPoints": "never",
+            "stacking": {"mode": "normal", "group": "A"}
+          }
+        },
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "level 30"}, "properties": [{"id": "displayName", "value": "info (30)"}, {"id": "color", "value": {"mode": "fixed", "fixedColor": "green"}}]},
+          {"matcher": {"id": "byName", "options": "level 40"}, "properties": [{"id": "displayName", "value": "warn (40)"}, {"id": "color", "value": {"mode": "fixed", "fixedColor": "yellow"}}]},
+          {"matcher": {"id": "byName", "options": "level 50"}, "properties": [{"id": "displayName", "value": "error (50)"}, {"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]},
+          {"matcher": {"id": "byName", "options": "level 60"}, "properties": [{"id": "displayName", "value": "fatal (60)"}, {"id": "color", "value": {"mode": "fixed", "fixedColor": "dark-red"}}]}
+        ]
+      },
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom", "calcs": [], "showLegend": true},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Error + Warn Rate (api + worker)",
+      "description": "pino numeric levels: level>=40 captures warn(40)+error(50)+fatal(60). Compares as a number (verified). Per-second rate over the range.",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 1},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "sum(count_over_time({service_name=~\"mneme-(api|worker)-1\"} | json | level>=40 [$__range]))",
+          "queryType": "instant",
+          "legendFormat": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0 — no backend errors/warnings in range (healthy)",
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "yellow", "value": 1},
+            {"color": "red", "value": 50}
+          ]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background", "graphMode": "none", "justifyMode": "center", "textMode": "value",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}
+      }
+    },
+    {
+      "id": 4,
+      "type": "logs",
+      "title": "Live Log Stream (all backend — raw)",
+      "description": "Raw stream for all three backend containers. NO field extraction, so postgres plain-text renders fine alongside api/worker pino JSON (D7).",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 9},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "{service_name=~\"mneme-(api|worker|postgres)-1\"}",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {"defaults": {"noValue": "No backend logs in range"}, "overrides": []},
+      "options": {
+        "showTime": true,
+        "showLabels": true,
+        "showCommonLabels": false,
+        "wrapLogMessage": false,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "Top Error Messages (api + worker, level>=50)",
+      "description": "pino numeric level>=50 = error+fatal. Grouped by msg.",
+      "gridPos": {"h": 6, "w": 24, "x": 0, "y": 17},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "topk(10, sum by (msg) (count_over_time({service_name=~\"mneme-(api|worker)-1\"} | json | level>=50 [$__range])))",
+          "queryType": "instant",
+          "legendFormat": "",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"custom": {"align": "auto", "cellOptions": {"type": "auto"}}, "noValue": "No backend errors in range (healthy)"},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "Value"}, "properties": [{"id": "custom.width", "value": 90}, {"id": "displayName", "value": "count"}]}
+        ]
+      },
+      "options": {"showHeader": true, "sortBy": [{"displayName": "count", "desc": true}]},
+      "transformations": [
+        {"id": "labelsToFields", "options": {"mode": "columns"}},
+        {"id": "organize", "options": {"excludeByName": {"Time": true}, "renameByName": {"msg": "message"}}}
+      ]
+    },
+    {
+      "id": 10,
+      "type": "row",
+      "title": "API (mneme-api-1)",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 23},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 11,
+      "type": "logs",
+      "title": "API Log Stream",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "{service_name=\"mneme-api-1\"}",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {"defaults": {"noValue": "No mneme-api-1 logs in range"}, "overrides": []},
+      "options": {
+        "showTime": true, "showLabels": false, "showCommonLabels": false,
+        "wrapLogMessage": false, "prettifyLogMessage": true, "enableLogDetails": true,
+        "dedupStrategy": "none", "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 20,
+      "type": "row",
+      "title": "Worker (mneme-worker-1)",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 32},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 21,
+      "type": "logs",
+      "title": "Worker Log Stream",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 33},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "{service_name=\"mneme-worker-1\"}",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {"defaults": {"noValue": "No mneme-worker-1 logs in range"}, "overrides": []},
+      "options": {
+        "showTime": true, "showLabels": false, "showCommonLabels": false,
+        "wrapLogMessage": false, "prettifyLogMessage": true, "enableLogDetails": true,
+        "dedupStrategy": "none", "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 30,
+      "type": "row",
+      "title": "Postgres (mneme-postgres-1) — plain text, never | json",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 41},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 31,
+      "type": "logs",
+      "title": "Postgres Log Stream (raw)",
+      "description": "Postgres is plain text: `<ts> UTC [<pid>] <SEVERITY>:  <msg>`. Raw stream — NO | json (D7/FR-63).",
+      "gridPos": {"h": 8, "w": 16, "x": 0, "y": 42},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "{service_name=\"mneme-postgres-1\"}",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {"defaults": {"noValue": "No mneme-postgres-1 logs in range"}, "overrides": []},
+      "options": {
+        "showTime": true, "showLabels": false, "showCommonLabels": false,
+        "wrapLogMessage": true, "prettifyLogMessage": false, "enableLogDetails": true,
+        "dedupStrategy": "none", "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 32,
+      "type": "timeseries",
+      "title": "Postgres Severity (ERROR/FATAL/PANIC/WARNING)",
+      "description": "Position-anchored regex `\\] (ERROR|FATAL|PANIC|WARNING):` — anchored on the [pid] bracket + trailing colon so it cannot match these words inside a message body. Includes PANIC (a naive ERROR|FATAL would miss panics). NEVER | json on postgres (D7).",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 42},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "sum(count_over_time({service_name=\"mneme-postgres-1\"} |~ `\\] (ERROR|FATAL|PANIC|WARNING):` [$__auto]))",
+          "queryType": "range",
+          "legendFormat": "error/fatal/panic/warning"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short", "min": 0,
+          "noValue": "0 — no postgres error/fatal/panic/warning in range (healthy)",
+          "color": {"mode": "fixed", "fixedColor": "red"},
+          "custom": {"drawStyle": "bars", "lineWidth": 1, "fillOpacity": 60, "spanNulls": false, "showPoints": "never"}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom", "calcs": [], "showLegend": false},
+        "tooltip": {"mode": "single", "sort": "none"}
+      }
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["mneme", "backend", "logs"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Mneme — Backend Logs",
+  "uid": "mneme-backend-logs",
+  "version": 1,
+  "weekStart": ""
+}
